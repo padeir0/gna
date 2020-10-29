@@ -1,6 +1,8 @@
 package mgs
 
 import (
+	"encoding"
+	"fmt"
 	"io"
 	"log"
 	"net"
@@ -12,28 +14,31 @@ type Server struct {
 	Addr         string
 	Timeout      time.Duration
 	TickInterval time.Duration
-	Brain        func(cAcumu <-chan []*Input, cCaster chan<- io.WriterTo)
-	Protocol     func([]byte) interface{}
-	Validate     func([]byte) bool
+	Logic        func([]*Input) map[int]io.WriterTo
+	Unmarshaler  func([]byte) encoding.BinaryMarshaler
+	Validate     func([]byte) (io.WriterTo, bool)
+	Verbose      bool
 
 	talkers map[int]*talker // only Caster can write, others just read
 
-	signal     chan int         // for Talkers to signal termination to the Caster.
-	talkIn     chan *Input      // Data fan in from the Talkers to the Acumulator
-	newTalkers chan *talker     // send new Talkers to Caster
-	acToBr     chan []*Input    // Acumulator to Brain
-	brToCast   chan io.WriterTo // Brain to Caster
+	signal     chan int                 // for Talkers to signal termination to the Caster.
+	talkIn     chan *Input              // Data fan in from the Talkers to the Acumulator
+	newTalkers chan *talker             // send new Talkers to Caster
+	acToBr     chan []*Input            // Acumulator to Brain
+	brToCast   chan map[int]io.WriterTo // Brain to Caster
 }
 
 func (sr *Server) Start() error {
 	sr.newTalkers = make(chan *talker)
 	sr.acToBr = make(chan []*Input)
-	sr.brToCast = make(chan io.WriterTo)
+	sr.brToCast = make(chan map[int]io.WriterTo)
 
 	sr.talkIn = make(chan *Input) // Fan In
 	sr.signal = make(chan int)
 
-	go sr.Brain(sr.acToBr, sr.brToCast)
+	sr.talkers = map[int]*talker{}
+
+	go sr.brain()
 	go sr.caster()
 	go sr.acumulator()
 
@@ -45,6 +50,9 @@ func (sr *Server) listen() error {
 	listener, err := net.ListenTCP("tcp", addr)
 	if err != nil {
 		return err
+	}
+	if sr.Verbose {
+		fmt.Println("Listening at:", sr.Addr)
 	}
 
 	defer listener.Close()
@@ -59,7 +67,7 @@ func (sr *Server) listen() error {
 			log.Print(err)
 		}
 
-		castOut := make(chan io.WriterTo, 2)
+		castOut := make(chan io.WriterTo, 1)
 		talker := talker{id, conn, castOut, sr}
 		sr.newTalkers <- &talker
 		go talker.Talk()
@@ -67,8 +75,14 @@ func (sr *Server) listen() error {
 	}
 }
 
+func (sr *Server) brain() {
+	for {
+		sr.brToCast <- sr.Logic(<-sr.acToBr)
+	}
+}
+
 func (sr *Server) acumulator() {
-	ticker := time.NewTicker(time.Millisecond * sr.TickInterval)
+	ticker := time.NewTicker(sr.TickInterval)
 	defer ticker.Stop()
 	buff := make([]*Input, 1000)
 	var i int
@@ -85,6 +99,9 @@ func (sr *Server) acumulator() {
 			}
 			buff[i] = msg
 			i++
+			if sr.Verbose {
+				fmt.Println(msg)
+			}
 		}
 	}
 }
@@ -94,11 +111,19 @@ func (sr *Server) caster() {
 		select {
 		case id := <-sr.signal:
 			delete(sr.talkers, id)
+			if sr.Verbose {
+				fmt.Println("Terminating: ", id)
+			}
 		case newTalker := <-sr.newTalkers:
-			sr.talkers[newTalker.id] = newTalker
+			sr.talkers[newTalker.Id] = newTalker
+			if sr.Verbose {
+				fmt.Println("New Talker: ", newTalker.Id)
+			}
 		case data := <-sr.brToCast:
-			for id := range sr.talkers {
-				sr.talkers[id].castOut <- data
+			for id, w := range data {
+				if v, ok := sr.talkers[id]; ok {
+					v.castOut <- w
+				}
 			}
 		}
 	}
