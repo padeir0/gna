@@ -14,24 +14,24 @@ type Server struct {
 	Addr         string
 	Timeout      time.Duration
 	TickInterval time.Duration
-	Logic        func([]*Input) map[int]io.WriterTo
+	Logic        func([]*Input) map[int]encoding.BinaryMarshaler
 	Unmarshaler  func([]byte) encoding.BinaryMarshaler
 	Validate     func([]byte) (io.WriterTo, bool)
 	Verbose      bool
 
 	talkers map[int]*talker // only Caster can write, others just read
 
-	signal     chan int                 // for Talkers to signal termination to the Caster.
-	talkIn     chan *Input              // Data fan in from the Talkers to the Acumulator
-	newTalkers chan *talker             // send new Talkers to Caster
-	acToBr     chan []*Input            // Acumulator to Brain
-	brToCast   chan map[int]io.WriterTo // Brain to Caster
+	signal     chan int                              // for Talkers to signal termination to the Caster.
+	talkIn     chan *Input                           // Data fan in from the Talkers to the Acumulator
+	newTalkers chan *talker                          // send new Talkers to Caster
+	acToBr     chan []*Input                         // Acumulator to Brain
+	brToCast   chan map[int]encoding.BinaryMarshaler // Brain to Caster
 }
 
 func (sr *Server) Start() error {
 	sr.newTalkers = make(chan *talker)
 	sr.acToBr = make(chan []*Input)
-	sr.brToCast = make(chan map[int]io.WriterTo)
+	sr.brToCast = make(chan map[int]encoding.BinaryMarshaler)
 
 	sr.talkIn = make(chan *Input) // Fan In
 	sr.signal = make(chan int)
@@ -67,10 +67,10 @@ func (sr *Server) listen() error {
 			log.Print(err)
 		}
 
-		castOut := make(chan io.WriterTo, 1)
-		talker := talker{id, conn, castOut, sr}
+		castOut := make(chan encoding.BinaryMarshaler, 1)
+		talker := talker{id, conn, 0, castOut, sr}
 		sr.newTalkers <- &talker
-		go talker.Talk()
+		go talker.start()
 		id++
 	}
 }
