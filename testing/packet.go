@@ -45,86 +45,92 @@ func main() {
 		Error(err)
 		data[i] = packet{pktSize, lst[1]}
 	}
-	if *frenzy > 0 {
-		for {
-			for i := 0; i < *minions; i++ {
-				go minion(data) // LET IT LEAK
-			}
-			time.Sleep(frenzyInterval)
-		}
-	} else {
-		var wg sync.WaitGroup
-		for i := 0; i < *minions; i++ {
-			go func() {
-				defer wg.Done()
-				minion(data)
-			}()
-			wg.Add(1)
-		}
-		wg.Wait()
+	var wg sync.WaitGroup
+	for i := 0; i < *minions; i++ {
+		go func() {
+			defer wg.Done()
+			minion(data, frenzyInterval)
+		}()
+		wg.Add(1)
 	}
+	wg.Wait()
 }
 
-func minion(data []packet) {
+func minion(data []packet, t time.Duration) {
 	conn, err := net.Dial("tcp", *host)
 	Error(err)
+	var n int
+	var taim uint64
+	buff := make([]byte, 255)
+	bSize := make([]byte, 2)
+	bTime := make([]byte, 8)
+
 	defer conn.Close()
-	for i := range data {
-		n, err := sendPacket(conn, data[i].size, data[i].data)
-		Error(err)
-		fmt.Println(n, "bytes written.")
-		time.Sleep(interval)
-	}
-	if *read {
-		var n int
-		var err error
-		buff := make([]byte, 255)
-		//bSize := make([]byte, 2)
-		for {
-			//n, err = getPack(conn, &bSize, &buff)
-			n, err = conn.Read(buff)
-			if n <= 0 {
-				break
-			}
+	for {
+		for i := range data {
+			n, err = sendPacket(conn, data[i].size, data[i].data)
 			Error(err)
-			fmt.Println(string(buff[:n]))
+			fmt.Println(n, "bytes written.")
+			time.Sleep(interval)
+		}
+		if *read {
+			for {
+				n, taim, err = getPack(conn, bSize, bTime, buff)
+				if n <= 0 {
+					break
+				}
+				Error(err)
+				fmt.Println("Recv: ", taim, buff[:n])
+			}
+		}
+		if t > 0 {
+			time.Sleep(t)
+		} else {
+			break
 		}
 	}
 	time.Sleep(keepAlive)
 }
 
 func sendPacket(conn net.Conn, size int, data string) (int, error) {
-	packet := []byte{}
-	bSize := make([]byte, 2)
-	binary.BigEndian.PutUint16(bSize, uint16(size))
-	buff := append(bSize, []byte(data)...)
-	packet = append(packet, buff...)
-	n, err := conn.Write(packet)
-	fmt.Println(packet)
+	sizeAndtime := make([]byte, 10)
+	binary.BigEndian.PutUint16(sizeAndtime, uint16(size))
+	binary.BigEndian.PutUint64(sizeAndtime[2:], uint64(time.Now().UnixNano()))
+	buff := append(sizeAndtime, []byte(data)...)
+	n, err := conn.Write(buff)
+	fmt.Println("Sent: ", buff[:n])
 	return n, err
 }
 
-func getPack(conn net.Conn, bSize, buff *[]byte) (int, error) {
+func getPack(conn net.Conn, bSize, bTime, buff []byte) (int, uint64, error) {
+	var time uint64
 	var size uint16
 	var err error
 	var n int
-	n, err = conn.Read(*bSize)
-	size = binary.BigEndian.Uint16(*bSize)
+	n, err = conn.Read(bSize)
+	size = binary.BigEndian.Uint16(bSize)
 	if err != nil {
-		return n, err
+		return n, 0, err
 	}
+	n, err = conn.Read(bTime)
+	time = binary.BigEndian.Uint64(bTime)
+	fmt.Println("Size/Time: ", size, time)
+	if err != nil {
+		return n, 0, err
+	}
+	if int(size) > len(buff)-1 {
+		buff = append(buff, make([]byte, int(size)-len(buff))...)
+	}
+
 	var i uint16
 	for i < size {
-		if int(i) >= len(*buff) {
-			(*buff) = append(*buff, make([]byte, 32)...)
-		}
-		n, err = conn.Read((*buff)[i : size-i])
+		n, err = conn.Read(buff[i:size])
 		if err != nil {
-			return n, err
+			return n, 0, err
 		}
 		i += uint16(n)
 	}
-	return int(size), nil
+	return int(size), time, nil
 }
 
 func Error(err error) {

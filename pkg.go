@@ -2,6 +2,7 @@ package mgs
 
 import (
 	"encoding"
+	"encoding/binary"
 	"fmt"
 	"io"
 	"log"
@@ -14,29 +15,29 @@ type Server struct {
 	Addr         string
 	Timeout      time.Duration
 	TickInterval time.Duration
-	Logic        func([]*Input) map[int]encoding.BinaryMarshaler
+	Logic        func([]*Input) []*Input
 	Unmarshaler  func([]byte) encoding.BinaryMarshaler
-	Validate     func([]byte) (io.WriterTo, bool)
+	Validate     func([]byte) (encoding.BinaryMarshaler, bool)
 	Verbose      bool
 
-	talkers map[int]*talker // only Caster can write, others just read
+	talkers map[uint32]*talker // only Caster can write, others just read
 
-	signal     chan int                              // for Talkers to signal termination to the Caster.
-	talkIn     chan *Input                           // Data fan in from the Talkers to the Acumulator
-	newTalkers chan *talker                          // send new Talkers to Caster
-	acToBr     chan []*Input                         // Acumulator to Brain
-	brToCast   chan map[int]encoding.BinaryMarshaler // Brain to Caster
+	signal     chan uint32   // for Talkers to signal termination to the Caster.
+	talkIn     chan *Input   // Data fan in from the Talkers to the Acumulator
+	newTalkers chan *talker  // send new Talkers to Caster
+	acToBr     chan []*Input // Acumulator to Brain
+	brToCast   chan []*Input // Brain to Caster
 }
 
 func (sr *Server) Start() error {
 	sr.newTalkers = make(chan *talker)
 	sr.acToBr = make(chan []*Input)
-	sr.brToCast = make(chan map[int]encoding.BinaryMarshaler)
+	sr.brToCast = make(chan []*Input)
 
 	sr.talkIn = make(chan *Input) // Fan In
-	sr.signal = make(chan int)
+	sr.signal = make(chan uint32)
 
-	sr.talkers = map[int]*talker{}
+	sr.talkers = map[uint32]*talker{}
 
 	go sr.brain()
 	go sr.caster()
@@ -56,7 +57,7 @@ func (sr *Server) listen() error {
 	}
 
 	defer listener.Close()
-	id := 0
+	id := uint32(0)
 	for {
 		conn, err := listener.AcceptTCP()
 		if err != nil {
@@ -67,7 +68,7 @@ func (sr *Server) listen() error {
 			log.Print(err)
 		}
 
-		castOut := make(chan encoding.BinaryMarshaler, 1)
+		castOut := make(chan encoding.BinaryMarshaler)
 		talker := talker{id, conn, 0, castOut, sr}
 		sr.newTalkers <- &talker
 		go talker.start()
@@ -100,13 +101,14 @@ func (sr *Server) acumulator() {
 			buff[i] = msg
 			i++
 			if sr.Verbose {
-				fmt.Println(msg)
+				fmt.Println("acu: ", buff[:i])
 			}
 		}
 	}
 }
 
 func (sr *Server) caster() {
+	bSize := make([]byte, 2)
 	for {
 		select {
 		case id := <-sr.signal:
@@ -120,11 +122,30 @@ func (sr *Server) caster() {
 				fmt.Println("New Talker: ", newTalker.Id)
 			}
 		case data := <-sr.brToCast:
-			for id, w := range data {
-				if v, ok := sr.talkers[id]; ok {
-					v.castOut <- w
+			fmt.Println("casting")
+			for _, inp := range data {
+				err := WriteTo(bSize, inp.T.Conn, inp.Data)
+				if err != nil {
+					log.Println(err)
 				}
 			}
 		}
 	}
+}
+
+func WriteTo(bSize []byte, w io.Writer, bm encoding.BinaryMarshaler) error {
+	b, err := bm.MarshalBinary()
+	if err != nil {
+		log.Println(err)
+		return err
+	}
+	binary.BigEndian.PutUint16(bSize, uint16(len(b)))
+	dt := append(bSize, b...)
+	_, err = w.Write(dt)
+	fmt.Println("Wrote: ", dt)
+	if err != nil {
+		log.Println(err)
+		return err
+	}
+	return nil
 }

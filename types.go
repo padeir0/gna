@@ -12,7 +12,7 @@ import (
 
 type Input struct {
 	T    *talker
-	Time uint32
+	Time uint64
 	Data encoding.BinaryMarshaler
 }
 
@@ -20,20 +20,16 @@ func (i *Input) String() string {
 	return fmt.Sprintf("{%v %v %v}", i.T, i.Time, i.Data)
 }
 
-func (i *Input) WriteTo(w io.Writer) (int64, error) {
-	buff := make([]byte, 6)
-	binary.BigEndian.PutUint32(buff[2:], uint32(i.Time)) // hopefully time.UnixNano doesn't give negative numbers
+func (i *Input) MarshalBinary() ([]byte, error) {
+	buff := make([]byte, 12)
+	binary.BigEndian.PutUint64(buff, i.Time)
+	binary.BigEndian.PutUint32(buff[8:], i.T.Id)
 	d, err := i.Data.MarshalBinary()
-	if err != nil {
-		panic(err)
-	}
-	binary.BigEndian.PutUint16(buff, uint16(len(d)+4))
-	n, err := w.Write(append(buff, d...))
-	return int64(n), err
+	return append(buff, d...), err
 }
 
 type talker struct {
-	Id      int
+	Id      uint32
 	Conn    *net.TCPConn
 	Ping    time.Duration
 	castOut chan encoding.BinaryMarshaler
@@ -52,68 +48,51 @@ Should time be appended to the packet automagically?
 */
 func (t *talker) start() {
 	defer t.Terminate()
-	bSize := make([]byte, 2)
-	bTime := make([]byte, 4)
+	bSize := make([]byte, 2) // uint16
+	bTime := make([]byte, 8) // uint64
 	buff := make([]byte, 255)
 	n, _, err := getPack(t.Conn, bSize, bTime, buff)
 	if err != nil {
 		if opErr, ok := err.(*net.OpError); ok && opErr.Timeout() || err == io.EOF {
 			return
 		}
-		fmt.Println(err)
+		log.Println(err)
 		return
 	}
 
-	if pkg, ok := t.sr.Validate(buff[:n]); !ok {
+	if pkt, ok := t.sr.Validate(buff[:n]); !ok {
 		return
 	} else {
-		_, err = pkg.WriteTo(t.Conn)
+		err = WriteTo(bSize, t.Conn, pkt)
 		if err != nil {
 			log.Print(err)
 			return
 		}
 	}
+	fmt.Println("talking")
 	t.talk(bSize, bTime, buff)
 }
 
 func (t *talker) talk(bSize, bTime, buff []byte) {
 	var err error
 	var n int
-	var now uint32
+	var now uint64
 	for {
-		select {
-		case dt, ok := <-t.castOut:
-			b, err := dt.MarshalBinary()
-			if err != nil {
-				log.Print(err)
+		n, now, err = getPack(t.Conn, bSize, bTime, buff)
+		if err != nil {
+			if opErr, ok := err.(*net.OpError); ok && opErr.Timeout() || err == io.EOF {
 				return
 			}
-			binary.BigEndian.PutUint16(bSize, uint16(len(b)))
-			_, err = t.Conn.Write(append(bSize, b...))
-			if err != nil {
-				log.Print(err)
-				return
-			}
-			if !ok {
-				return
-			}
-		default:
-			n, now, err = getPack(t.Conn, bSize, bTime, buff)
-			if err != nil {
-				if opErr, ok := err.(*net.OpError); ok && opErr.Timeout() || err == io.EOF {
-					return
-				}
-				fmt.Println(err)
-				continue
-			}
-			t.Ping = time.Now().Sub(time.Unix(0, int64(now)))
-			t.sr.talkIn <- &Input{t, now, t.sr.Unmarshaler(buff[:n])}
+			log.Println(err)
+			return
 		}
+		t.Ping = time.Now().Sub(time.Unix(0, int64(now)))
+		t.sr.talkIn <- &Input{t, now, t.sr.Unmarshaler(buff[:n])}
 	}
 }
 
-func getPack(conn *net.TCPConn, bSize, bTime, buff []byte) (int, uint32, error) {
-	var time uint32
+func getPack(conn *net.TCPConn, bSize, bTime, buff []byte) (int, uint64, error) {
+	var time uint64
 	var size uint16
 	var err error
 	var n int
@@ -123,16 +102,17 @@ func getPack(conn *net.TCPConn, bSize, bTime, buff []byte) (int, uint32, error) 
 		return n, 0, err
 	}
 	n, err = conn.Read(bTime)
-	time = binary.BigEndian.Uint32(bTime)
+	time = binary.BigEndian.Uint64(bTime)
+	fmt.Println("Size/Time: ", size, time)
 	if err != nil {
 		return n, 0, err
+	}
+	if int(size) > len(buff)-1 {
+		buff = append(buff, make([]byte, int(size)-len(buff))...)
 	}
 
 	var i uint16
 	for i < size {
-		if int(i) >= len(buff) {
-			buff = append(buff, make([]byte, 32)...)
-		}
 		n, err = conn.Read(buff[i:size])
 		if err != nil {
 			return n, 0, err
