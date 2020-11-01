@@ -51,7 +51,7 @@ func (t *talker) start() {
 	bSize := make([]byte, 2) // uint16
 	bTime := make([]byte, 8) // uint64
 	buff := make([]byte, 255)
-	n, _, err := getPack(t.Conn, bSize, bTime, buff)
+	n, _, err := getPack(t.Conn, bSize, bTime, &buff)
 	if err != nil {
 		if opErr, ok := err.(*net.OpError); ok && opErr.Timeout() || err == io.EOF {
 			return
@@ -69,7 +69,6 @@ func (t *talker) start() {
 			return
 		}
 	}
-	fmt.Println("talking")
 	t.talk(bSize, bTime, buff)
 }
 
@@ -78,7 +77,11 @@ func (t *talker) talk(bSize, bTime, buff []byte) {
 	var n int
 	var now uint64
 	for {
-		n, now, err = getPack(t.Conn, bSize, bTime, buff)
+		err = t.Conn.SetReadDeadline(time.Now().Add(t.sr.Timeout))
+		if err != nil {
+			log.Print(err)
+		}
+		n, now, err = getPack(t.Conn, bSize, bTime, &buff)
 		if err != nil {
 			if opErr, ok := err.(*net.OpError); ok && opErr.Timeout() || err == io.EOF {
 				return
@@ -91,7 +94,7 @@ func (t *talker) talk(bSize, bTime, buff []byte) {
 	}
 }
 
-func getPack(conn *net.TCPConn, bSize, bTime, buff []byte) (int, uint64, error) {
+func getPack(conn *net.TCPConn, bSize, bTime []byte, buff *[]byte) (int, uint64, error) {
 	var time uint64
 	var size uint16
 	var err error
@@ -103,17 +106,16 @@ func getPack(conn *net.TCPConn, bSize, bTime, buff []byte) (int, uint64, error) 
 	}
 	n, err = conn.Read(bTime)
 	time = binary.BigEndian.Uint64(bTime)
-	fmt.Println("Size/Time: ", size, time)
 	if err != nil {
 		return n, 0, err
 	}
-	if int(size) > len(buff)-1 {
-		buff = append(buff, make([]byte, int(size)-len(buff))...)
+	if int(size) > len(*buff)-1 {
+		*buff = append(*buff, make([]byte, int(size)-len(*buff))...)
 	}
 
 	var i uint16
 	for i < size {
-		n, err = conn.Read(buff[i:size])
+		n, err = conn.Read((*buff)[i:size])
 		if err != nil {
 			return n, 0, err
 		}

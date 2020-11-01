@@ -63,10 +63,6 @@ func (sr *Server) listen() error {
 		if err != nil {
 			log.Print(err)
 		}
-		err = conn.SetReadDeadline(time.Now().Add(sr.Timeout))
-		if err != nil {
-			log.Print(err)
-		}
 
 		castOut := make(chan encoding.BinaryMarshaler)
 		talker := talker{id, conn, 0, castOut, sr}
@@ -100,9 +96,6 @@ func (sr *Server) acumulator() {
 			}
 			buff[i] = msg
 			i++
-			if sr.Verbose {
-				fmt.Println("acu: ", buff[:i])
-			}
 		}
 	}
 }
@@ -122,7 +115,6 @@ func (sr *Server) caster() {
 				fmt.Println("New Talker: ", newTalker.Id)
 			}
 		case data := <-sr.brToCast:
-			fmt.Println("casting")
 			for _, inp := range data {
 				err := WriteTo(bSize, inp.T.Conn, inp.Data)
 				if err != nil {
@@ -142,7 +134,6 @@ func WriteTo(bSize []byte, w io.Writer, bm encoding.BinaryMarshaler) error {
 	binary.BigEndian.PutUint16(bSize, uint16(len(b)))
 	dt := append(bSize, b...)
 	_, err = w.Write(dt)
-	fmt.Println("Wrote: ", dt)
 	if err != nil {
 		log.Println(err)
 		return err
