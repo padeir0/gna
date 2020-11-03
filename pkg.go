@@ -3,10 +3,12 @@ package mgs
 import (
 	"encoding"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"io"
 	"log"
 	"net"
+	"syscall"
 	"time"
 )
 
@@ -15,24 +17,24 @@ type Server struct {
 	Addr         string
 	Timeout      time.Duration
 	TickInterval time.Duration
-	Logic        func([]*Input) []*Input
+	Logic        func([]*Input) map[uint32][]encoding.BinaryMarshaler
 	Unmarshaler  func([]byte) encoding.BinaryMarshaler
 	Validate     func([]byte) (encoding.BinaryMarshaler, bool)
 	Verbose      bool
 
 	talkers map[uint32]*talker // only Caster can write, others just read
 
-	signal     chan uint32   // for Talkers to signal termination to the Caster.
-	talkIn     chan *Input   // Data fan in from the Talkers to the Acumulator
-	newTalkers chan *talker  // send new Talkers to Caster
-	acToBr     chan []*Input // Acumulator to Brain
-	brToDisp   chan []*Input // Brain to Dispatcher
+	signal     chan uint32                                // for Talkers to signal termination to the Caster.
+	talkIn     chan *Input                                // Data fan in from the Talkers to the Acumulator
+	newTalkers chan *talker                               // send new Talkers to Caster
+	acToBr     chan []*Input                              // Acumulator to Brain
+	brToDisp   chan map[uint32][]encoding.BinaryMarshaler // Brain to Dispatcher
 }
 
 func (sr *Server) Start() error {
 	sr.newTalkers = make(chan *talker)
 	sr.acToBr = make(chan []*Input)
-	sr.brToDisp = make(chan []*Input)
+	sr.brToDisp = make(chan map[uint32][]encoding.BinaryMarshaler)
 
 	sr.talkIn = make(chan *Input) // Fan In
 	sr.signal = make(chan uint32)
@@ -113,11 +115,27 @@ func (sr *Server) dispatcher() {
 			if sr.Verbose {
 				fmt.Println("New Talker: ", newTalker.Id)
 			}
+		/* Create Workers to handle the writes, separate the writes by id
+		that way an entire array of writes can be negated if an user disconnects.
+		something like map[uint32][]*Input
+		*/
 		case data := <-sr.brToDisp:
-			for _, inp := range data {
-				err := WriteTo(bSize, inp.T.conn, inp.Data)
-				if err != nil {
-					log.Println(err)
+			var ok bool
+			var t *talker
+			for id, marshSlice := range data {
+				for _, marsh := range marshSlice {
+					if t, ok = sr.talkers[id]; !ok {
+						log.Println("Cancelling packets to: ", id, ". Talker Terminated.")
+						break
+					}
+					err := WriteTo(bSize, t.conn, marsh)
+					if err != nil {
+						if errors.Is(err, syscall.EPIPE) {
+							log.Println("Cancelling packets to: ", id, ".", err)
+							break
+						}
+						log.Println(err)
+					}
 				}
 			}
 		}

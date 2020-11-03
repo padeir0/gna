@@ -20,14 +20,18 @@ func main() {
 	fmt.Println(server.Start())
 }
 
-func GameLogic(dt []*mgs.Input) []*mgs.Input {
-	fmt.Println(dt[0].T.Ping)
+func GameLogic(dt []*mgs.Input) map[uint32][]encoding.BinaryMarshaler {
+	out := map[uint32][]encoding.BinaryMarshaler{}
 	for i := range dt {
 		v := dt[i].Data.(Data)
-		v = append(v, 'p', 'o', 'o', 'p')
-		dt[i].Data = v
+		if _, ok := out[dt[i].T.Id]; ok {
+			out[dt[i].T.Id] = append(out[dt[i].T.Id], v)
+		} else {
+			out[dt[i].T.Id] = []encoding.BinaryMarshaler{v}
+		}
 	}
-	return dt
+	time.Sleep(time.Millisecond * 40) // simulating a load
+	return out
 }
 
 func Protocol(d []byte) encoding.BinaryMarshaler {

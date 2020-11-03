@@ -73,11 +73,12 @@ func (t *talker) talk(bSize, bTime, buff []byte) {
 	for {
 		err = t.conn.SetReadDeadline(time.Now().Add(t.sr.Timeout))
 		if err != nil {
-			log.Print(err)
+			log.Println(err)
 		}
 		n, now, err = getPack(t.conn, bSize, bTime, &buff)
-		// theres something wrong with this error handling
-		if err != nil && !(err == io.EOF && n > 0) {
+
+		// this error handling is still not good enough
+		if err != nil {
 			log.Println(err)
 			if opErr, ok := err.(*net.OpError); ok && opErr.Timeout() {
 				return

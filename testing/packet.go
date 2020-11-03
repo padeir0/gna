@@ -4,6 +4,7 @@ import (
 	"encoding/binary"
 	"flag"
 	"fmt"
+	"io"
 	"net"
 	"strconv"
 	"strings"
@@ -79,6 +80,9 @@ func minion(data []packet, t time.Duration) {
 		if *read {
 			for nOfPkts > 0 {
 				n, err = getPack(conn, bSize, &buff)
+				if err == io.EOF {
+					return
+				}
 				Error(err)
 				fmt.Println("Recv: ", string(buff[:n]))
 				nOfPkts--
