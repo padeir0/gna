@@ -62,12 +62,12 @@ func main() {
 func minion(data []packet, t time.Duration) {
 	conn, err := net.Dial("tcp", *host)
 	Error(err)
+	defer conn.Close()
 	var n int
 	var nOfPkts int
 	buff := make([]byte, 255)
 	bSize := make([]byte, 2)
 
-	defer conn.Close()
 	for {
 		for i := range data {
 			n, err = sendPacket(conn, data[i].size, data[i].data)
@@ -80,7 +80,7 @@ func minion(data []packet, t time.Duration) {
 			for nOfPkts > 0 {
 				n, err = getPack(conn, bSize, &buff)
 				Error(err)
-				fmt.Println("Recv: ", buff[:n])
+				fmt.Println("Recv: ", string(buff[:n]))
 				nOfPkts--
 			}
 		}

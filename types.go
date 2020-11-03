@@ -29,41 +29,35 @@ func (i *Input) MarshalBinary() ([]byte, error) {
 }
 
 type talker struct {
-	Id      uint32
-	Conn    *net.TCPConn
-	Ping    time.Duration
-	castOut chan encoding.BinaryMarshaler
-	sr      *Server
+	Id   uint32
+	Ping time.Duration
+	conn *net.TCPConn
+	sr   *Server
 }
 
 func (t *talker) Terminate() {
-	t.Conn.Close()
+	t.conn.Close()
 	t.sr.signal <- t.Id
 }
 
-/*
-Instead of io.WriterTo use Marshaler and append packets with lenght
-Should time be appended to the packet automagically?
-- Can calculate ping this way, but takes 4 bytes
-*/
 func (t *talker) start() {
 	defer t.Terminate()
 	bSize := make([]byte, 2) // uint16
 	bTime := make([]byte, 8) // uint64
 	buff := make([]byte, 255)
-	n, _, err := getPack(t.Conn, bSize, bTime, &buff)
-	if err != nil {
-		if opErr, ok := err.(*net.OpError); ok && opErr.Timeout() || err == io.EOF {
+	n, _, err := getPack(t.conn, bSize, bTime, &buff)
+	if err != nil && !(err == io.EOF && n > 0) {
+		log.Println(err)
+		if opErr, ok := err.(*net.OpError); ok && opErr.Timeout() {
 			return
 		}
-		log.Println(err)
 		return
 	}
 
 	if pkt, ok := t.sr.Validate(buff[:n]); !ok {
 		return
 	} else {
-		err = WriteTo(bSize, t.Conn, pkt)
+		err = WriteTo(bSize, t.conn, pkt)
 		if err != nil {
 			log.Print(err)
 			return
@@ -77,16 +71,17 @@ func (t *talker) talk(bSize, bTime, buff []byte) {
 	var n int
 	var now uint64
 	for {
-		err = t.Conn.SetReadDeadline(time.Now().Add(t.sr.Timeout))
+		err = t.conn.SetReadDeadline(time.Now().Add(t.sr.Timeout))
 		if err != nil {
 			log.Print(err)
 		}
-		n, now, err = getPack(t.Conn, bSize, bTime, &buff)
-		if err != nil {
-			if opErr, ok := err.(*net.OpError); ok && opErr.Timeout() || err == io.EOF {
+		n, now, err = getPack(t.conn, bSize, bTime, &buff)
+		// theres something wrong with this error handling
+		if err != nil && !(err == io.EOF && n > 0) {
+			log.Println(err)
+			if opErr, ok := err.(*net.OpError); ok && opErr.Timeout() {
 				return
 			}
-			log.Println(err)
 			return
 		}
 		t.Ping = time.Now().Sub(time.Unix(0, int64(now)))
@@ -102,12 +97,12 @@ func getPack(conn *net.TCPConn, bSize, bTime []byte, buff *[]byte) (int, uint64,
 	n, err = conn.Read(bSize)
 	size = binary.BigEndian.Uint16(bSize)
 	if err != nil {
-		return n, 0, err
+		return int(size), 0, err
 	}
 	n, err = conn.Read(bTime)
 	time = binary.BigEndian.Uint64(bTime)
 	if err != nil {
-		return n, 0, err
+		return int(size), time, err
 	}
 	if int(size) > len(*buff)-1 {
 		*buff = append(*buff, make([]byte, int(size)-len(*buff))...)

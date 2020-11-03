@@ -10,7 +10,7 @@ import (
 func main() {
 	server := mgs.Server{
 		Addr:         "localhost:8888",
-		Timeout:      time.Second * 5,
+		Timeout:      time.Second * 10,
 		TickInterval: time.Millisecond * 50,
 		Logic:        GameLogic,
 		Unmarshaler:  Protocol,
@@ -22,6 +22,11 @@ func main() {
 
 func GameLogic(dt []*mgs.Input) []*mgs.Input {
 	fmt.Println(dt[0].T.Ping)
+	for i := range dt {
+		v := dt[i].Data.(Data)
+		v = append(v, 'p', 'o', 'o', 'p')
+		dt[i].Data = v
+	}
 	return dt
 }
 

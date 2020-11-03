@@ -26,13 +26,13 @@ type Server struct {
 	talkIn     chan *Input   // Data fan in from the Talkers to the Acumulator
 	newTalkers chan *talker  // send new Talkers to Caster
 	acToBr     chan []*Input // Acumulator to Brain
-	brToCast   chan []*Input // Brain to Caster
+	brToDisp   chan []*Input // Brain to Dispatcher
 }
 
 func (sr *Server) Start() error {
 	sr.newTalkers = make(chan *talker)
 	sr.acToBr = make(chan []*Input)
-	sr.brToCast = make(chan []*Input)
+	sr.brToDisp = make(chan []*Input)
 
 	sr.talkIn = make(chan *Input) // Fan In
 	sr.signal = make(chan uint32)
@@ -40,7 +40,7 @@ func (sr *Server) Start() error {
 	sr.talkers = map[uint32]*talker{}
 
 	go sr.brain()
-	go sr.caster()
+	go sr.dispatcher()
 	go sr.acumulator()
 
 	return sr.listen()
@@ -64,8 +64,7 @@ func (sr *Server) listen() error {
 			log.Print(err)
 		}
 
-		castOut := make(chan encoding.BinaryMarshaler)
-		talker := talker{id, conn, 0, castOut, sr}
+		talker := talker{id, 0, conn, sr}
 		sr.newTalkers <- &talker
 		go talker.start()
 		id++
@@ -74,7 +73,7 @@ func (sr *Server) listen() error {
 
 func (sr *Server) brain() {
 	for {
-		sr.brToCast <- sr.Logic(<-sr.acToBr)
+		sr.brToDisp <- sr.Logic(<-sr.acToBr)
 	}
 }
 
@@ -100,7 +99,7 @@ func (sr *Server) acumulator() {
 	}
 }
 
-func (sr *Server) caster() {
+func (sr *Server) dispatcher() {
 	bSize := make([]byte, 2)
 	for {
 		select {
@@ -114,9 +113,9 @@ func (sr *Server) caster() {
 			if sr.Verbose {
 				fmt.Println("New Talker: ", newTalker.Id)
 			}
-		case data := <-sr.brToCast:
+		case data := <-sr.brToDisp:
 			for _, inp := range data {
-				err := WriteTo(bSize, inp.T.Conn, inp.Data)
+				err := WriteTo(bSize, inp.T.conn, inp.Data)
 				if err != nil {
 					log.Println(err)
 				}
