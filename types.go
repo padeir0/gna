@@ -4,7 +4,6 @@ import (
 	"encoding"
 	"encoding/binary"
 	"fmt"
-	"io"
 	"log"
 	"net"
 	"time"
@@ -33,6 +32,9 @@ type talker struct {
 	Ping time.Duration
 	conn *net.TCPConn
 	sr   *Server
+
+	buff []byte
+	i, n int
 }
 
 func (t *talker) Terminate() {
@@ -42,11 +44,9 @@ func (t *talker) Terminate() {
 
 func (t *talker) start() {
 	defer t.Terminate()
-	bSize := make([]byte, 2) // uint16
-	bTime := make([]byte, 8) // uint64
-	buff := make([]byte, 255)
-	n, _, err := getPack(t.conn, bSize, bTime, &buff)
-	if err != nil && !(err == io.EOF && n > 0) {
+	t.buff = make([]byte, 1024)
+	dt, _, err := t.getPack()
+	if err != nil {
 		log.Println(err)
 		if opErr, ok := err.(*net.OpError); ok && opErr.Timeout() {
 			return
@@ -54,28 +54,25 @@ func (t *talker) start() {
 		return
 	}
 
-	if pkt, ok := t.sr.Validate(buff[:n]); !ok {
+	if pkt, ok := t.sr.Validate(dt); !ok {
 		return
 	} else {
-		err = WriteTo(bSize, t.conn, pkt)
+		err = WriteTo(t.conn, pkt)
 		if err != nil {
 			log.Print(err)
 			return
 		}
 	}
-	t.talk(bSize, bTime, buff)
+	t.talk()
 }
 
-func (t *talker) talk(bSize, bTime, buff []byte) {
-	var err error
-	var n int
-	var now uint64
+func (t *talker) talk() {
 	for {
-		err = t.conn.SetReadDeadline(time.Now().Add(t.sr.Timeout))
+		err := t.conn.SetReadDeadline(time.Now().Add(t.sr.Timeout))
 		if err != nil {
 			log.Println(err)
 		}
-		n, now, err = getPack(t.conn, bSize, bTime, &buff)
+		dt, now, err := t.getPack()
 
 		// this error handling is still not good enough
 		if err != nil {
@@ -86,36 +83,42 @@ func (t *talker) talk(bSize, bTime, buff []byte) {
 			return
 		}
 		t.Ping = time.Now().Sub(time.Unix(0, int64(now)))
-		t.sr.talkIn <- &Input{t, now, t.sr.Unmarshaler(buff[:n])}
+		t.sr.talkIn <- &Input{t, now, t.sr.Unmarshaler(dt)}
 	}
 }
 
-func getPack(conn *net.TCPConn, bSize, bTime []byte, buff *[]byte) (int, uint64, error) {
-	var time uint64
-	var size uint16
-	var err error
-	var n int
-	n, err = conn.Read(bSize)
-	size = binary.BigEndian.Uint16(bSize)
+func (t *talker) getPack() ([]byte, uint64, error) {
+	err := t.fillBuffer(10)
 	if err != nil {
-		return int(size), 0, err
+		return nil, 0, err
 	}
-	n, err = conn.Read(bTime)
-	time = binary.BigEndian.Uint64(bTime)
+	size := binary.BigEndian.Uint16(t.buff[t.i : t.i+2])
+	t.i += 2
+	time := binary.BigEndian.Uint64(t.buff[t.i : t.i+8])
+	t.i += 8
+	err = t.fillBuffer(int(size))
 	if err != nil {
-		return int(size), time, err
+		return nil, 0, err
 	}
-	if int(size) > len(*buff)-1 {
-		*buff = append(*buff, make([]byte, int(size)-len(*buff))...)
-	}
+	oldI := t.i
+	t.i += int(size)
+	return t.buff[oldI:t.i], time, nil
+}
 
-	var i uint16
-	for i < size {
-		n, err = conn.Read((*buff)[i:size])
-		if err != nil {
-			return n, 0, err
-		}
-		i += uint16(n)
+func (t *talker) fillBuffer(size int) error {
+	if size > len(t.buff) {
+		t.buff = append(t.buff, make([]byte, size-len(t.buff))...)
 	}
-	return int(size), time, nil
+	if remainder := t.n - t.i; remainder < size {
+		for i := t.i; i < t.n; i++ { // copy end of buffer to the beginning
+			t.buff[i-t.i] = t.buff[t.i+i]
+		}
+		n, err := t.conn.Read(t.buff[remainder:])
+		t.n = n + remainder
+		t.i = 0
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }

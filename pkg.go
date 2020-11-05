@@ -8,6 +8,8 @@ import (
 	"io"
 	"log"
 	"net"
+	"os"
+	"os/signal"
 	"syscall"
 	"time"
 )
@@ -60,16 +62,37 @@ func (sr *Server) listen() error {
 
 	defer listener.Close()
 	id := uint32(0)
-	for {
-		conn, err := listener.AcceptTCP()
-		if err != nil {
-			log.Print(err)
+	chConns := make(chan *net.TCPConn)
+	sig := make(chan os.Signal, 1)
+	signal.Notify(sig, os.Interrupt)
+	go func() {
+		for {
+			conn, err := listener.AcceptTCP()
+			if err != nil {
+				log.Print(err)
+				continue
+			}
+			chConns <- conn
 		}
-
-		talker := talker{id, 0, conn, sr}
-		sr.newTalkers <- &talker
-		go talker.start()
-		id++
+	}()
+	for {
+		select {
+		case conn := <-chConns:
+			talker := talker{
+				Id:   id,
+				conn: conn,
+				sr:   sr,
+			}
+			sr.newTalkers <- &talker
+			go talker.start()
+			id++
+		case <-sig:
+			fmt.Println("Stopping server...")
+			for _, t := range sr.talkers {
+				t.Terminate()
+			}
+			return nil
+		}
 	}
 }
 
@@ -102,7 +125,6 @@ func (sr *Server) acumulator() {
 }
 
 func (sr *Server) dispatcher() {
-	bSize := make([]byte, 2)
 	for {
 		select {
 		case id := <-sr.signal:
@@ -128,7 +150,7 @@ func (sr *Server) dispatcher() {
 						log.Println("Cancelling packets to: ", id, ". Talker Terminated.")
 						break
 					}
-					err := WriteTo(bSize, t.conn, marsh)
+					err := WriteTo(t.conn, marsh)
 					if err != nil {
 						if errors.Is(err, syscall.EPIPE) {
 							log.Println("Cancelling packets to: ", id, ".", err)
@@ -142,7 +164,8 @@ func (sr *Server) dispatcher() {
 	}
 }
 
-func WriteTo(bSize []byte, w io.Writer, bm encoding.BinaryMarshaler) error {
+func WriteTo(w io.Writer, bm encoding.BinaryMarshaler) error {
+	bSize := make([]byte, 2)
 	b, err := bm.MarshalBinary()
 	if err != nil {
 		log.Println(err)

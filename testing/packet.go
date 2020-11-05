@@ -14,6 +14,7 @@ import (
 
 var host *string
 var read *bool
+var loop *bool
 var interval time.Duration
 var keepAlive time.Duration
 var latency time.Duration
@@ -29,12 +30,11 @@ func main() {
 	read = flag.Bool("r", false, "Print server response.")
 	host = flag.String("h", "localhost:8888", "Host address")
 	noClose := flag.Int("alive", 0, "Keep connection alive for specified seconds after sending packages")
-	frenzy := flag.Int("frenzy", 0, "Intervals between frenzys, in milliseconds. If zero theres no frenzy.")
+	loop = flag.Bool("l", false, "Loops infinetely while sending packets.")
 	ping := flag.Int("ping", 0, "Client Ping in milliseconds")
 	flag.Parse()
 	interval = time.Millisecond * time.Duration(*between)
 	keepAlive = time.Second * time.Duration(*noClose)
-	frenzyInterval := time.Millisecond * time.Duration(*frenzy)
 	latency = time.Millisecond * time.Duration(*ping)
 	args := flag.Args()
 	if len(args) < 1 {
@@ -53,14 +53,14 @@ func main() {
 	for i := 0; i < *minions; i++ {
 		go func() {
 			defer wg.Done()
-			minion(data, frenzyInterval)
+			minion(data)
 		}()
 		wg.Add(1)
 	}
 	wg.Wait()
 }
 
-func minion(data []packet, t time.Duration) {
+func minion(data []packet) {
 	conn, err := net.Dial("tcp", *host)
 	Error(err)
 	defer conn.Close()
@@ -71,10 +71,12 @@ func minion(data []packet, t time.Duration) {
 
 	for {
 		for i := range data {
-			n, err = sendPacket(conn, data[i].size, data[i].data)
-			Error(err)
-			fmt.Println(n, "bytes written.")
-			nOfPkts++
+			go func() {
+				n, err = sendPacket(conn, data[i].size, data[i].data)
+				Error(err)
+				fmt.Println(n, "bytes written.")
+				nOfPkts++
+			}()
 			time.Sleep(interval)
 		}
 		if *read {
@@ -88,12 +90,12 @@ func minion(data []packet, t time.Duration) {
 				nOfPkts--
 			}
 		}
-		if t > 0 {
-			time.Sleep(t)
-		} else {
-			break
-		}
 		nOfPkts = 0
+		if *loop {
+			time.Sleep(interval)
+			continue
+		}
+		break
 	}
 	time.Sleep(keepAlive)
 }
