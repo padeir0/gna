@@ -3,9 +3,12 @@ package mgs
 import (
 	"encoding"
 	"encoding/binary"
+	"errors"
 	"fmt"
+	"io"
 	"log"
 	"net"
+	"syscall"
 	"time"
 )
 
@@ -33,18 +36,25 @@ type talker struct {
 	conn *net.TCPConn
 	sr   *Server
 
+	mouthSig chan chan struct{}
+	mouthDt  chan []encoding.BinaryMarshaler
+
 	buff []byte
 	i, n int
 }
 
 func (t *talker) Terminate() {
 	t.conn.Close()
-	t.sr.signal <- t.Id
+	t.sr.signal <- t.Id // this transfers the execution to the dispatcher, deleting the talker
+	close(t.mouthSig)   // so the dispatcher knows to not send data to this channel
+	close(t.mouthDt)    // and it's safe to close them
 }
 
 func (t *talker) start() {
 	defer t.Terminate()
 	t.buff = make([]byte, 1024)
+	t.mouthSig = make(chan chan struct{})
+	t.mouthDt = make(chan []encoding.BinaryMarshaler)
 	dt, _, err := t.getPack()
 	if err != nil {
 		log.Println(err)
@@ -57,16 +67,90 @@ func (t *talker) start() {
 	if pkt, ok := t.sr.Validate(dt); !ok {
 		return
 	} else {
+		fmt.Println(pkt)
 		err = WriteTo(t.conn, pkt)
 		if err != nil {
 			log.Print(err)
 			return
 		}
 	}
-	t.talk()
+	c := make(chan struct{})
+	go func() {
+		defer func() { c <- struct{}{} }()
+		t.mouth()
+	}()
+	go func() {
+		defer func() { c <- struct{}{} }()
+		t.ear()
+	}()
+
+	<-c // if either dies the talker must stop
 }
 
-func (t *talker) talk() {
+/* Burárum this mouth is a little too big
+ */
+func (t *talker) mouth() {
+	dt := []encoding.BinaryMarshaler{}
+	buff := make([]byte, 256)
+	for {
+		sig := <-t.mouthSig
+		fmt.Println("received sig channel")
+		if sig == nil {
+			return
+		}
+		dt = <-t.mouthDt
+		<-sig
+		fmt.Println("beep")
+		n := 0
+		for i := range dt {
+			b, err := dt[i].MarshalBinary()
+			if err != nil {
+				log.Println(err)
+				return
+			}
+			size := uint16(len(b))
+			binary.BigEndian.PutUint16(buff[n:], size)
+			n += 2
+			for j := range b {
+				buff[n+j] = b[j]
+			}
+			n += int(size)
+		}
+		x := 0
+		for x < n {
+			fmt.Println(buff[x:n])
+			i, err := t.conn.Write(buff[x:n])
+			x += i
+			if err != nil {
+				if errors.Is(err, syscall.EPIPE) {
+					log.Println("Cancelling packets to: ", t.Id, ".", err)
+					return
+				}
+				log.Println(err)
+				break
+			}
+		}
+		fmt.Println("Write Finished")
+	}
+}
+
+func WriteTo(w io.Writer, bm encoding.BinaryMarshaler) error {
+	bSize := make([]byte, 2)
+	b, err := bm.MarshalBinary()
+	if err != nil {
+		log.Println(err)
+		return err
+	}
+	dt := append(bSize, b...)
+	_, err = w.Write(dt)
+	if err != nil {
+		log.Println(err)
+		return err
+	}
+	return nil
+}
+
+func (t *talker) ear() {
 	for {
 		err := t.conn.SetReadDeadline(time.Now().Add(t.sr.Timeout))
 		if err != nil {

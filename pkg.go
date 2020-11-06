@@ -2,15 +2,11 @@ package mgs
 
 import (
 	"encoding"
-	"encoding/binary"
-	"errors"
 	"fmt"
-	"io"
 	"log"
 	"net"
 	"os"
 	"os/signal"
-	"syscall"
 	"time"
 )
 
@@ -24,7 +20,7 @@ type Server struct {
 	Validate     func([]byte) (encoding.BinaryMarshaler, bool)
 	Verbose      bool
 
-	talkers map[uint32]*talker // only Caster can write, others just read
+	talkers map[uint32]*talker // only Dispatcher can modify, others just read
 
 	signal     chan uint32                                // for Talkers to signal termination to the Caster.
 	talkIn     chan *Input                                // Data fan in from the Talkers to the Acumulator
@@ -132,51 +128,26 @@ func (sr *Server) dispatcher() {
 			if sr.Verbose {
 				fmt.Println("Terminating: ", id)
 			}
+			continue // this may be useless
 		case newTalker := <-sr.newTalkers:
 			sr.talkers[newTalker.Id] = newTalker
 			if sr.Verbose {
 				fmt.Println("New Talker: ", newTalker.Id)
 			}
-		/* Create Workers to handle the writes, separate the writes by id
-		that way an entire array of writes can be negated if an user disconnects.
-		something like map[uint32][]*Input
-		*/
+		/* Create Workers to handle the writes*/
 		case data := <-sr.brToDisp:
 			var ok bool
 			var t *talker
+			c := make(chan struct{})
 			for id, marshSlice := range data {
-				for _, marsh := range marshSlice {
-					if t, ok = sr.talkers[id]; !ok {
-						log.Println("Cancelling packets to: ", id, ". Talker Terminated.")
-						break
-					}
-					err := WriteTo(t.conn, marsh)
-					if err != nil {
-						if errors.Is(err, syscall.EPIPE) {
-							log.Println("Cancelling packets to: ", id, ".", err)
-							break
-						}
-						log.Println(err)
-					}
+				if t, ok = sr.talkers[id]; !ok {
+					log.Println("Talker Terminated. Cancelling packets to: ", id)
+					continue
 				}
+				t.mouthSig <- c
+				t.mouthDt <- marshSlice
 			}
+			close(c)
 		}
 	}
-}
-
-func WriteTo(w io.Writer, bm encoding.BinaryMarshaler) error {
-	bSize := make([]byte, 2)
-	b, err := bm.MarshalBinary()
-	if err != nil {
-		log.Println(err)
-		return err
-	}
-	binary.BigEndian.PutUint16(bSize, uint16(len(b)))
-	dt := append(bSize, b...)
-	_, err = w.Write(dt)
-	if err != nil {
-		log.Println(err)
-		return err
-	}
-	return nil
 }

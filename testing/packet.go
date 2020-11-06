@@ -67,7 +67,7 @@ func minion(data []packet) {
 	var n int
 	var nOfPkts int
 	buff := make([]byte, 255)
-	bSize := make([]byte, 2)
+	//bSize := make([]byte, 2)
 
 	for {
 		for i := range data {
@@ -80,15 +80,23 @@ func minion(data []packet) {
 			time.Sleep(interval)
 		}
 		if *read {
-			for nOfPkts > 0 {
-				n, err = getPack(conn, bSize, &buff)
-				if err == io.EOF {
-					return
-				}
-				Error(err)
-				fmt.Println("Recv: ", string(buff[:n]))
-				nOfPkts--
+			n, err := conn.Read(buff)
+			if err == io.EOF {
+				return
 			}
+			Error(err)
+			fmt.Println("Recv: ", buff[:n])
+			/*
+				for nOfPkts > 0 {
+					n, err = getPack(conn, bSize, &buff)
+					if err == io.EOF {
+						return
+					}
+					Error(err)
+					fmt.Println("Recv: ", buff[:n])
+					nOfPkts--
+				}
+			*/
 		}
 		nOfPkts = 0
 		if *loop {
