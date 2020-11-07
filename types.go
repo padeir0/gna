@@ -8,6 +8,7 @@ import (
 	"io"
 	"log"
 	"net"
+	"sync"
 	"syscall"
 	"time"
 )
@@ -41,13 +42,21 @@ type talker struct {
 
 	buff []byte
 	i, n int
+
+	dead bool
+	mu   sync.Mutex
 }
 
 func (t *talker) Terminate() {
-	t.conn.Close()
-	t.sr.signal <- t.Id // this transfers the execution to the dispatcher, deleting the talker
-	close(t.mouthSig)   // so the dispatcher knows to not send data to this channel
-	close(t.mouthDt)    // and it's safe to close them
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if !t.dead {
+		t.conn.Close()
+		t.sr.signal <- t.Id // this transfers the execution to the dispatcher, deleting the talker
+		close(t.mouthSig)   // so the dispatcher knows to not send data to this channel
+		close(t.mouthDt)    // and it's safe to close them
+		t.dead = true
+	}
 }
 
 func (t *talker) start() {
@@ -67,7 +76,6 @@ func (t *talker) start() {
 	if pkt, ok := t.sr.Validate(dt); !ok {
 		return
 	} else {
-		fmt.Println(pkt)
 		err = WriteTo(t.conn, pkt)
 		if err != nil {
 			log.Print(err)
@@ -94,13 +102,11 @@ func (t *talker) mouth() {
 	buff := make([]byte, 256)
 	for {
 		sig := <-t.mouthSig
-		fmt.Println("received sig channel")
 		if sig == nil {
 			return
 		}
 		dt = <-t.mouthDt
 		<-sig
-		fmt.Println("beep")
 		n := 0
 		for i := range dt {
 			b, err := dt[i].MarshalBinary()
@@ -118,7 +124,6 @@ func (t *talker) mouth() {
 		}
 		x := 0
 		for x < n {
-			fmt.Println(buff[x:n])
 			i, err := t.conn.Write(buff[x:n])
 			x += i
 			if err != nil {
@@ -130,7 +135,6 @@ func (t *talker) mouth() {
 				break
 			}
 		}
-		fmt.Println("Write Finished")
 	}
 }
 
@@ -141,6 +145,7 @@ func WriteTo(w io.Writer, bm encoding.BinaryMarshaler) error {
 		log.Println(err)
 		return err
 	}
+	binary.BigEndian.PutUint16(bSize, uint16(len(b)))
 	dt := append(bSize, b...)
 	_, err = w.Write(dt)
 	if err != nil {

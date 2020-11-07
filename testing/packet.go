@@ -53,26 +53,32 @@ func main() {
 	for i := 0; i < *minions; i++ {
 		go func() {
 			defer wg.Done()
-			minion(data)
+			(&minion{}).start(data)
 		}()
 		wg.Add(1)
 	}
 	wg.Wait()
 }
 
-func minion(data []packet) {
-	conn, err := net.Dial("tcp", *host)
+type minion struct {
+	conn net.Conn
+	buff []byte
+	i, n int
+}
+
+func (m *minion) start(data []packet) {
+	var err error
+	m.conn, err = net.Dial("tcp", *host)
 	Error(err)
-	defer conn.Close()
+	defer m.conn.Close()
 	var n int
 	var nOfPkts int
-	buff := make([]byte, 255)
-	//bSize := make([]byte, 2)
+	m.buff = make([]byte, 64)
 
 	for {
 		for i := range data {
 			go func() {
-				n, err = sendPacket(conn, data[i].size, data[i].data)
+				n, err = sendPacket(m.conn, data[i].size, data[i].data)
 				Error(err)
 				fmt.Println(n, "bytes written.")
 				nOfPkts++
@@ -80,23 +86,15 @@ func minion(data []packet) {
 			time.Sleep(interval)
 		}
 		if *read {
-			n, err := conn.Read(buff)
-			if err == io.EOF {
-				return
-			}
-			Error(err)
-			fmt.Println("Recv: ", buff[:n])
-			/*
-				for nOfPkts > 0 {
-					n, err = getPack(conn, bSize, &buff)
-					if err == io.EOF {
-						return
-					}
-					Error(err)
-					fmt.Println("Recv: ", buff[:n])
-					nOfPkts--
+			for nOfPkts > 0 {
+				b, err := m.getPack()
+				if err == io.EOF {
+					return
 				}
-			*/
+				Error(err)
+				fmt.Println("Recv: ", b)
+				nOfPkts--
+			}
 		}
 		nOfPkts = 0
 		if *loop {
@@ -119,32 +117,42 @@ func sendPacket(conn net.Conn, size int, data string) (int, error) {
 	return n, err
 }
 
-func getPack(conn net.Conn, bSize []byte, buff *[]byte) (int, error) {
-	var size uint16
-	var err error
-	var n int
-	n, err = conn.Read(bSize)
-	size = binary.BigEndian.Uint16(bSize)
-	if err != nil {
-		return n, err
-	}
-	if int(size) > len(*buff)-1 {
-		*buff = append(*buff, make([]byte, int(size)-len(*buff))...)
-	}
-
-	var i uint16
-	for i < size {
-		n, err = conn.Read((*buff)[i:size])
-		if err != nil {
-			return n, err
-		}
-		i += uint16(n)
-	}
-	return int(size), nil
-}
-
 func Error(err error) {
 	if err != nil {
 		panic(err)
 	}
+}
+
+func (m *minion) getPack() ([]byte, error) {
+	err := m.fillBuffer(2)
+	if err != nil {
+		return nil, err
+	}
+	size := binary.BigEndian.Uint16(m.buff[m.i : m.i+2])
+	m.i += 2
+	err = m.fillBuffer(int(size))
+	if err != nil {
+		return nil, err
+	}
+	oldI := m.i
+	m.i += int(size)
+	return m.buff[oldI:m.i], nil
+}
+
+func (m *minion) fillBuffer(size int) error {
+	if size > len(m.buff) {
+		m.buff = append(m.buff, make([]byte, size-len(m.buff))...)
+	}
+	if remainder := m.n - m.i; remainder < size {
+		for i := m.i; i < m.n; i++ { // copy end of buffer to the beginning
+			m.buff[i-m.i] = m.buff[m.i+i]
+		}
+		n, err := m.conn.Read(m.buff[remainder:])
+		m.n = n + remainder
+		m.i = 0
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }
