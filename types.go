@@ -51,11 +51,12 @@ func (t *talker) Terminate() {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	if !t.dead {
+		t.dead = true
 		t.conn.Close()
 		t.sr.signal <- t.Id // this transfers the execution to the dispatcher, deleting the talker
-		close(t.mouthSig)   // so the dispatcher knows to not send data to this channel
+		close(t.mouthSig)   // so the dispatcher knows to not send data to these channels
 		close(t.mouthDt)    // and it's safe to close them
-		t.dead = true
+		t.sr.Disconnection(t.Id)
 	}
 }
 
@@ -73,7 +74,7 @@ func (t *talker) start() {
 		return
 	}
 
-	if pkt, ok := t.sr.Validate(dt); !ok {
+	if pkt, ok := t.sr.Validate(t.Id, dt); !ok {
 		return
 	} else {
 		err = WriteTo(t.conn, pkt)
@@ -82,27 +83,26 @@ func (t *talker) start() {
 			return
 		}
 	}
-	c := make(chan struct{})
+	var wg sync.WaitGroup
 	go func() {
-		defer func() { c <- struct{}{} }()
+		defer wg.Done()
 		t.mouth()
 	}()
 	go func() {
-		defer func() { c <- struct{}{} }()
+		defer wg.Done()
 		t.ear()
 	}()
 
-	<-c // if either dies the talker must stop
+	wg.Add(2)
+	wg.Wait()
 }
 
-/* Burárum this mouth is a little too big
- */
 func (t *talker) mouth() {
 	dt := []encoding.BinaryMarshaler{}
 	buff := make([]byte, 256)
 	for {
-		sig := <-t.mouthSig
-		if sig == nil {
+		sig, ok := <-t.mouthSig
+		if sig == nil || !ok {
 			return
 		}
 		dt = <-t.mouthDt

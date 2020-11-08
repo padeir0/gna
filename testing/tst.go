@@ -44,13 +44,14 @@ func main() {
 	}
 
 	server := mgs.Server{
-		Addr:         "localhost:8888",
-		Timeout:      time.Second * 10,
-		TickInterval: time.Millisecond * 100,
-		Logic:        GameLogic,
-		Unmarshaler:  Protocol,
-		Validate:     Validate,
-		Verbose:      true,
+		Addr:          "localhost:8888",
+		Timeout:       time.Second * 10,
+		TickInterval:  time.Millisecond * 100,
+		Logic:         GameLogic,
+		Unmarshaler:   Protocol,
+		Validate:      Validate,
+		Disconnection: Disconnection,
+		Verbose:       true,
 	}
 	fmt.Println(server.Start())
 }
@@ -92,8 +93,12 @@ func Protocol(d []byte) encoding.BinaryMarshaler {
 	return Data(d)
 }
 
-func Validate(a []byte) (encoding.BinaryMarshaler, bool) {
+func Validate(id uint32, a []byte) (encoding.BinaryMarshaler, bool) {
 	return Data(a), true
+}
+
+func Disconnection(id uint32) {
+	fmt.Println(id, "Disconnected")
 }
 
 type Data []byte

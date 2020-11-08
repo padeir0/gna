@@ -12,13 +12,14 @@ import (
 
 type Server struct {
 	// Read only fields
-	Addr         string
-	Timeout      time.Duration
-	TickInterval time.Duration
-	Logic        func([]*Input) map[uint32][]encoding.BinaryMarshaler
-	Unmarshaler  func([]byte) encoding.BinaryMarshaler
-	Validate     func([]byte) (encoding.BinaryMarshaler, bool)
-	Verbose      bool
+	Addr          string
+	Timeout       time.Duration // default 5 s
+	TickInterval  time.Duration // default 50 ms
+	Logic         func([]*Input) map[uint32][]encoding.BinaryMarshaler
+	Unmarshaler   func([]byte) encoding.BinaryMarshaler
+	Validate      func(uint32, []byte) (encoding.BinaryMarshaler, bool)
+	Disconnection func(uint32) // default: does nothing
+	Verbose       bool
 
 	talkers map[uint32]*talker // only Dispatcher can modify, others just read
 
@@ -30,13 +31,13 @@ type Server struct {
 }
 
 func (sr *Server) Start() error {
+	sr.fillDefault()
+
 	sr.newTalkers = make(chan *talker)
 	sr.acToBr = make(chan []*Input)
 	sr.brToDisp = make(chan map[uint32][]encoding.BinaryMarshaler)
-
 	sr.talkIn = make(chan *Input) // Fan In
 	sr.signal = make(chan uint32)
-
 	sr.talkers = map[uint32]*talker{}
 
 	go sr.brain()
@@ -44,6 +45,30 @@ func (sr *Server) Start() error {
 	go sr.acumulator()
 
 	return sr.listen()
+}
+
+func (sr *Server) fillDefault() {
+	if sr.Addr == "" {
+		sr.Addr = "0.0.0.0:27272"
+	}
+	if sr.Timeout == 0 {
+		sr.Timeout = time.Second * 5
+	}
+	if sr.TickInterval == 0 {
+		sr.TickInterval = time.Millisecond * 50
+	}
+	if sr.Logic == nil {
+		panic("Server.Logic cannot be nil!")
+	}
+	if sr.Unmarshaler == nil {
+		panic("Server.Unmarshaler cannot be nil!")
+	}
+	if sr.Validate == nil {
+		panic("Server.Validate cannot be nil!")
+	}
+	if sr.Disconnection == nil {
+		sr.Disconnection = func(uint32) {} // dummy
+	}
 }
 
 func (sr *Server) listen() error {
