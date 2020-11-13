@@ -1,7 +1,6 @@
 package mgs
 
 import (
-	"encoding"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -13,22 +12,31 @@ import (
 	"time"
 )
 
+type Encoder interface {
+	Size() int
+	Encode([]byte) error
+}
+
 type Input struct {
 	T    *talker
 	Time uint64
-	Data encoding.BinaryMarshaler
+	Data Encoder
 }
 
 func (i *Input) String() string {
 	return fmt.Sprintf("{%v %v %v}", i.T, i.Time, i.Data)
 }
 
-func (i *Input) MarshalBinary() ([]byte, error) {
-	buff := make([]byte, 12)
+func (i *Input) Size() int {
+	return 14 + i.Data.Size()
+}
+
+func (i *Input) Encode(buff []byte) error {
 	binary.BigEndian.PutUint64(buff, i.Time)
 	binary.BigEndian.PutUint32(buff[8:], i.T.Id)
-	d, err := i.Data.MarshalBinary()
-	return append(buff, d...), err
+	binary.BigEndian.PutUint16(buff[12:], uint16(i.Data.Size()))
+	err := i.Data.Encode(buff[14:])
+	return err
 }
 
 type talker struct {
@@ -38,7 +46,7 @@ type talker struct {
 	sr   *Server
 
 	mouthSig chan chan struct{}
-	mouthDt  chan []encoding.BinaryMarshaler
+	mouthDt  chan []Encoder
 
 	buff []byte
 	i, n int
@@ -56,7 +64,7 @@ func (t *talker) Terminate() {
 		t.sr.signal <- t.Id // this transfers the execution to the dispatcher, deleting the talker
 		close(t.mouthSig)   // so the dispatcher knows to not send data to these channels
 		close(t.mouthDt)    // and it's safe to close them
-		t.sr.Disconnection(t.Id)
+		t.sr.Disconnection(int(t.Id))
 	}
 }
 
@@ -64,7 +72,7 @@ func (t *talker) start() {
 	defer t.Terminate()
 	t.buff = make([]byte, 1024)
 	t.mouthSig = make(chan chan struct{})
-	t.mouthDt = make(chan []encoding.BinaryMarshaler)
+	t.mouthDt = make(chan []Encoder)
 	dt, _, err := t.getPack()
 	if err != nil {
 		log.Println(err)
@@ -74,7 +82,7 @@ func (t *talker) start() {
 		return
 	}
 
-	if pkt, ok := t.sr.Validate(t.Id, dt); !ok {
+	if pkt, ok := t.sr.Validate(int(t.Id), dt); !ok {
 		return
 	} else {
 		err = WriteTo(t.conn, pkt)
@@ -98,7 +106,7 @@ func (t *talker) start() {
 }
 
 func (t *talker) mouth() {
-	dt := []encoding.BinaryMarshaler{}
+	dt := []Encoder{}
 	buff := make([]byte, 256)
 	for {
 		sig, ok := <-t.mouthSig
@@ -109,18 +117,18 @@ func (t *talker) mouth() {
 		<-sig
 		n := 0
 		for i := range dt {
-			b, err := dt[i].MarshalBinary()
+			size := dt[i].Size()
+			if n+size >= len(buff) {
+				buff = append(buff, make([]byte, 2+size)...)
+			}
+			binary.BigEndian.PutUint16(buff[n:], uint16(size))
+			n += 2
+			err := dt[i].Encode(buff[n:])
+			n += size
 			if err != nil {
 				log.Println(err)
 				return
 			}
-			size := uint16(len(b))
-			binary.BigEndian.PutUint16(buff[n:], size)
-			n += 2
-			for j := range b {
-				buff[n+j] = b[j]
-			}
-			n += int(size)
 		}
 		x := 0
 		for x < n {
@@ -138,16 +146,16 @@ func (t *talker) mouth() {
 	}
 }
 
-func WriteTo(w io.Writer, bm encoding.BinaryMarshaler) error {
-	bSize := make([]byte, 2)
-	b, err := bm.MarshalBinary()
+func WriteTo(w io.Writer, enc Encoder) error {
+	size := enc.Size()
+	buff := make([]byte, 2+size)
+	binary.BigEndian.PutUint16(buff, uint16(size))
+	err := enc.Encode(buff[2:])
 	if err != nil {
 		log.Println(err)
 		return err
 	}
-	binary.BigEndian.PutUint16(bSize, uint16(len(b)))
-	dt := append(bSize, b...)
-	_, err = w.Write(dt)
+	_, err = w.Write(buff)
 	if err != nil {
 		log.Println(err)
 		return err

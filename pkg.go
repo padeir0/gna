@@ -1,7 +1,6 @@
 package mgs
 
 import (
-	"encoding"
 	"fmt"
 	"log"
 	"net"
@@ -15,19 +14,19 @@ type Server struct {
 	Addr          string
 	Timeout       time.Duration // default 5 s
 	TickInterval  time.Duration // default 50 ms
-	Logic         func([]*Input) map[uint32][]encoding.BinaryMarshaler
-	Unmarshaler   func([]byte) encoding.BinaryMarshaler
-	Validate      func(uint32, []byte) (encoding.BinaryMarshaler, bool)
-	Disconnection func(uint32) // default: does nothing
+	Logic         func([]*Input) map[uint32][]Encoder
+	Unmarshaler   func([]byte) Encoder
+	Validate      func(int, []byte) (Encoder, bool)
+	Disconnection func(int) // default: does nothing
 	Verbose       bool
 
 	talkers map[uint32]*talker // only Dispatcher can modify, others just read
 
-	signal     chan uint32                                // for Talkers to signal termination to the Caster.
-	talkIn     chan *Input                                // Data fan in from the Talkers to the Acumulator
-	newTalkers chan *talker                               // send new Talkers to Caster
-	acToBr     chan []*Input                              // Acumulator to Brain
-	brToDisp   chan map[uint32][]encoding.BinaryMarshaler // Brain to Dispatcher
+	signal     chan uint32               // for Talkers to signal termination to the Caster.
+	talkIn     chan *Input               // Data fan in from the Talkers to the Acumulator
+	newTalkers chan *talker              // send new Talkers to Caster
+	acToBr     chan []*Input             // Acumulator to Brain
+	brToDisp   chan map[uint32][]Encoder // Brain to Dispatcher
 }
 
 func (sr *Server) Start() error {
@@ -35,7 +34,7 @@ func (sr *Server) Start() error {
 
 	sr.newTalkers = make(chan *talker)
 	sr.acToBr = make(chan []*Input)
-	sr.brToDisp = make(chan map[uint32][]encoding.BinaryMarshaler)
+	sr.brToDisp = make(chan map[uint32][]Encoder)
 	sr.talkIn = make(chan *Input) // Fan In
 	sr.signal = make(chan uint32)
 	sr.talkers = map[uint32]*talker{}
@@ -67,7 +66,7 @@ func (sr *Server) fillDefault() {
 		panic("Server.Validate cannot be nil!")
 	}
 	if sr.Disconnection == nil {
-		sr.Disconnection = func(uint32) {} // dummy
+		sr.Disconnection = func(int) {} // dummy
 	}
 }
 

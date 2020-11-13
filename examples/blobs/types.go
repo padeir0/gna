@@ -37,6 +37,7 @@ func (gm *GameState) RmBlob(id uint32) {
 }
 
 type Blob struct {
+	id  uint32
 	p   Point
 	rot float64
 }
@@ -63,10 +64,11 @@ func (b *Blob) Spawn(max int) *Point {
 }
 
 func (b *Blob) MarshalBinary() ([]byte, error) {
-	buff := make([]byte, 12)
-	binary.BigEndian.PutUint32(buff, math.Float32bits(float32(b.p.x)))
-	binary.BigEndian.PutUint32(buff[4:], math.Float32bits(float32(b.p.y)))
-	binary.BigEndian.PutUint32(buff[8:], math.Float32bits(float32(b.rot)))
+	buff := make([]byte, 16)
+	binary.BigEndian.PutUint32(buff, b.id)
+	binary.BigEndian.PutUint32(buff[4:], math.Float32bits(float32(b.p.x)))
+	binary.BigEndian.PutUint32(buff[8:], math.Float32bits(float32(b.p.y)))
+	binary.BigEndian.PutUint32(buff[12:], math.Float32bits(float32(b.rot)))
 	return buff, nil
 }
 
