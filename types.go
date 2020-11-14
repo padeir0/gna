@@ -108,18 +108,16 @@ func (t *talker) start() {
 			return
 		}
 	}
-	var wg sync.WaitGroup
+	c := make(chan struct{})
 	go func() {
-		defer wg.Done()
+		defer func() {c<- struct{}{}}()
 		t.mouth()
 	}()
 	go func() {
-		defer wg.Done()
+		defer func() {c<- struct{}{}}()
 		t.ear()
 	}()
-
-	wg.Add(2)
-	wg.Wait()
+	<-c
 }
 
 func (t *talker) mouth() {

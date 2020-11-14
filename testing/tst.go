@@ -61,10 +61,10 @@ func GameLogic(dt []*mgs.Input) map[mgs.Sender][]mgs.Encoder {
 	out := map[mgs.Sender][]mgs.Encoder{}
 	for i := range dt {
 		v := dt[i].Data.(Data)
-		if s, ok := out[dt[i].T]; ok {
-			s = append(s, v)
+		if _, ok := out[dt[i].T]; ok {
+			out[dt[i].T] = append(out[dt[i].T], v)
 		} else {
-			s = []mgs.Encoder{v}
+			out[dt[i].T] = []mgs.Encoder{v}
 		}
 	}
 	if iter == 5 {
