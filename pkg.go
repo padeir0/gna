@@ -14,7 +14,7 @@ type Server struct {
 	Addr          string
 	Timeout       time.Duration // default 5 s
 	TickInterval  time.Duration // default 50 ms
-	Logic         func([]*Input) map[uint32][]Encoder
+	Logic         func([]*Input) map[Sender][]Encoder
 	Unmarshaler   func([]byte) Encoder
 	Validate      func(int, []byte) (Encoder, bool)
 	Disconnection func(int) // default: does nothing
@@ -26,7 +26,7 @@ type Server struct {
 	talkIn     chan *Input               // Data fan in from the Talkers to the Acumulator
 	newTalkers chan *talker              // send new Talkers to Caster
 	acToBr     chan []*Input             // Acumulator to Brain
-	brToDisp   chan map[uint32][]Encoder // Brain to Dispatcher
+	brToDisp   chan map[Sender][]Encoder // Brain to Dispatcher
 }
 
 func (sr *Server) Start() error {
@@ -34,7 +34,7 @@ func (sr *Server) Start() error {
 
 	sr.newTalkers = make(chan *talker)
 	sr.acToBr = make(chan []*Input)
-	sr.brToDisp = make(chan map[uint32][]Encoder)
+	sr.brToDisp = make(chan map[Sender][]Encoder)
 	sr.talkIn = make(chan *Input) // Fan In
 	sr.signal = make(chan uint32)
 	sr.talkers = map[uint32]*talker{}
@@ -160,16 +160,11 @@ func (sr *Server) dispatcher() {
 			}
 		/* Create Workers to handle the writes*/
 		case data := <-sr.brToDisp:
-			var ok bool
-			var t *talker
 			c := make(chan struct{})
-			for id, marshSlice := range data {
-				if t, ok = sr.talkers[id]; !ok {
-					log.Println("Talker Terminated. Cancelling packets to: ", id)
-					continue
+			for send, encs := range data {
+				if send.Retify(&sr.talkers) {
+					send.Send(c, encs)
 				}
-				t.mouthSig <- c
-				t.mouthDt <- marshSlice
 			}
 			close(c)
 		}

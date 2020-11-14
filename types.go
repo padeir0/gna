@@ -17,6 +17,11 @@ type Encoder interface {
 	Encode([]byte) error
 }
 
+type Sender interface {
+	Send(chan struct{}, []Encoder)
+	Retify(*map[uint32]*talker) bool
+}
+
 type Input struct {
 	T    *talker
 	Time uint64
@@ -53,6 +58,18 @@ type talker struct {
 
 	dead bool
 	mu   sync.Mutex
+}
+
+func (t *talker) Retify(mp *map[uint32]*talker) bool {
+	if _, ok := (*mp)[t.Id]; !ok {
+		return false
+	}
+	return true
+}
+
+func (t *talker) Send(sig chan struct{}, enc []Encoder) {
+	t.mouthSig <- sig
+	t.mouthDt <- enc
 }
 
 func (t *talker) Terminate() {
@@ -218,4 +235,40 @@ func (t *talker) fillBuffer(size int) error {
 		}
 	}
 	return nil
+}
+
+type Group struct {
+	tMap map[uint32]*talker
+	mu   sync.Mutex
+}
+
+func (g *Group) Add(t *talker) {
+	g.mu.Lock()
+	g.tMap[t.Id] = t
+	g.mu.Unlock()
+}
+
+func (g *Group) Rm(id uint32) {
+	g.mu.Lock()
+	delete(g.tMap, id)
+	g.mu.Unlock()
+}
+
+func (g *Group) Retify(mp *map[uint32]*talker) bool {
+	for id := range *mp {
+		if _, ok := g.tMap[id]; !ok {
+			g.Rm(id)
+		}
+	}
+	if len(g.tMap) == 0 {
+		return false
+	}
+	return true
+}
+
+func (g *Group) Send(sig chan struct{}, enc []Encoder) {
+	for _, t := range g.tMap {
+		t.mouthSig <- sig
+		t.mouthDt <- enc
+	}
 }

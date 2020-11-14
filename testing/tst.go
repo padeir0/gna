@@ -1,7 +1,6 @@
 package main
 
 import (
-	"encoding"
 	"flag"
 	"fmt"
 	"github.com/kazhmir/mgs"
@@ -58,14 +57,14 @@ func main() {
 
 var iter int
 
-func GameLogic(dt []*mgs.Input) map[uint32][]encoding.BinaryMarshaler {
-	out := map[uint32][]encoding.BinaryMarshaler{}
+func GameLogic(dt []*mgs.Input) map[mgs.Sender][]mgs.Encoder {
+	out := map[mgs.Sender][]mgs.Encoder{}
 	for i := range dt {
 		v := dt[i].Data.(Data)
-		if _, ok := out[dt[i].T.Id]; ok {
-			out[dt[i].T.Id] = append(out[dt[i].T.Id], v)
+		if s, ok := out[dt[i].T]; ok {
+			s = append(s, v)
 		} else {
-			out[dt[i].T.Id] = []encoding.BinaryMarshaler{v}
+			s = []mgs.Encoder{v}
 		}
 	}
 	if iter == 5 {
@@ -89,15 +88,15 @@ func GameLogic(dt []*mgs.Input) map[uint32][]encoding.BinaryMarshaler {
 	return out
 }
 
-func Protocol(d []byte) encoding.BinaryMarshaler {
+func Protocol(d []byte) mgs.Encoder {
 	return Data(d)
 }
 
-func Validate(id uint32, a []byte) (encoding.BinaryMarshaler, bool) {
+func Validate(id int, a []byte) (mgs.Encoder, bool) {
 	return Data(a), true
 }
 
-func Disconnection(id uint32) {
+func Disconnection(id int) {
 	fmt.Println(id, "Disconnected")
 }
 
@@ -105,4 +104,15 @@ type Data []byte
 
 func (dt Data) MarshalBinary() ([]byte, error) {
 	return dt, nil
+}
+
+func (dt Data) Size() int {
+	return len(dt)
+}
+
+func (dt Data) Encode(buff []byte) error {
+	for i := range dt {
+		buff[i] = dt[i]
+	}
+	return nil
 }
