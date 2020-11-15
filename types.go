@@ -19,34 +19,36 @@ type Encoder interface {
 
 type Sender interface {
 	Send(chan struct{}, []Encoder)
-	Retify(*map[uint32]*talker) bool
+	Retify(*map[uint64]*talker) bool
 }
 
 type Input struct {
 	T    *talker
-	Time uint64
-	Data Encoder
+	Data interface{}
 }
 
 func (i *Input) String() string {
-	return fmt.Sprintf("{%v %v %v}", i.T, i.Time, i.Data)
+	return fmt.Sprintf("{%v %v}", i.T, i.Data)
 }
 
 func (i *Input) Size() int {
-	return 14 + i.Data.Size()
+	if v, ok := i.Data.(Encoder); ok {
+		return 8 + v.Size()
+	}
+	return 8
 }
 
 func (i *Input) Encode(buff []byte) error {
-	binary.BigEndian.PutUint64(buff, i.Time)
-	binary.BigEndian.PutUint32(buff[8:], i.T.Id)
-	binary.BigEndian.PutUint16(buff[12:], uint16(i.Data.Size()))
-	err := i.Data.Encode(buff[14:])
+	var err error
+	binary.BigEndian.PutUint64(buff, i.T.Id)
+	if v, ok := i.Data.(Encoder); ok {
+		err = v.Encode(buff[8:])
+	}
 	return err
 }
 
 type talker struct {
-	Id   uint32
-	Ping time.Duration
+	Id   uint64
 	conn *net.TCPConn
 	sr   *Server
 
@@ -60,7 +62,7 @@ type talker struct {
 	mu   sync.Mutex
 }
 
-func (t *talker) Retify(mp *map[uint32]*talker) bool {
+func (t *talker) Retify(mp *map[uint64]*talker) bool {
 	if _, ok := (*mp)[t.Id]; !ok {
 		return false
 	}
@@ -90,7 +92,7 @@ func (t *talker) start() {
 	t.buff = make([]byte, 1024)
 	t.mouthSig = make(chan chan struct{})
 	t.mouthDt = make(chan []Encoder)
-	dt, _, err := t.getPack()
+	dt, err := t.getPack()
 	if err != nil {
 		log.Println(err)
 		if opErr, ok := err.(*net.OpError); ok && opErr.Timeout() {
@@ -184,7 +186,7 @@ func (t *talker) ear() {
 		if err != nil {
 			log.Println(err)
 		}
-		dt, now, err := t.getPack()
+		dt, err := t.getPack()
 
 		// this error handling is still not good enough
 		if err != nil {
@@ -194,27 +196,24 @@ func (t *talker) ear() {
 			}
 			return
 		}
-		t.Ping = time.Now().Sub(time.Unix(0, int64(now)))
-		t.sr.talkIn <- &Input{t, now, t.sr.Unmarshaler(dt)}
+		t.sr.talkIn <- &Input{t, t.sr.Unmarshaler(dt)}
 	}
 }
 
-func (t *talker) getPack() ([]byte, uint64, error) {
-	err := t.fillBuffer(10)
+func (t *talker) getPack() ([]byte, error) {
+	err := t.fillBuffer(2)
 	if err != nil {
-		return nil, 0, err
+		return nil, err
 	}
 	size := binary.BigEndian.Uint16(t.buff[t.i : t.i+2])
 	t.i += 2
-	time := binary.BigEndian.Uint64(t.buff[t.i : t.i+8])
-	t.i += 8
 	err = t.fillBuffer(int(size))
 	if err != nil {
-		return nil, 0, err
+		return nil, err
 	}
 	oldI := t.i
 	t.i += int(size)
-	return t.buff[oldI:t.i], time, nil
+	return t.buff[oldI:t.i], nil
 }
 
 func (t *talker) fillBuffer(size int) error {
@@ -236,7 +235,7 @@ func (t *talker) fillBuffer(size int) error {
 }
 
 type Group struct {
-	tMap map[uint32]*talker
+	tMap map[uint64]*talker
 	mu   sync.Mutex
 }
 
@@ -246,13 +245,13 @@ func (g *Group) Add(t *talker) {
 	g.mu.Unlock()
 }
 
-func (g *Group) Rm(id uint32) {
+func (g *Group) Rm(id uint64) {
 	g.mu.Lock()
 	delete(g.tMap, id)
 	g.mu.Unlock()
 }
 
-func (g *Group) Retify(mp *map[uint32]*talker) bool {
+func (g *Group) Retify(mp *map[uint64]*talker) bool {
 	for id := range *mp {
 		if _, ok := g.tMap[id]; !ok {
 			g.Rm(id)

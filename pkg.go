@@ -15,14 +15,14 @@ type Server struct {
 	Timeout       time.Duration // default 5 s
 	TickInterval  time.Duration // default 50 ms
 	Logic         func([]*Input) map[Sender][]Encoder
-	Unmarshaler   func([]byte) Encoder
+	Unmarshaler   func([]byte) interface{}
 	Validate      func(int, []byte) (Encoder, bool)
 	Disconnection func(int) // default: does nothing
 	Verbose       bool
 
-	talkers map[uint32]*talker // only Dispatcher can modify, others just read
+	talkers map[uint64]*talker // only Dispatcher can modify, others just read
 
-	signal     chan uint32               // for Talkers to signal termination to the Caster.
+	signal     chan uint64               // for Talkers to signal termination to the Caster.
 	talkIn     chan *Input               // Data fan in from the Talkers to the Acumulator
 	newTalkers chan *talker              // send new Talkers to Caster
 	acToBr     chan []*Input             // Acumulator to Brain
@@ -36,8 +36,8 @@ func (sr *Server) Start() error {
 	sr.acToBr = make(chan []*Input)
 	sr.brToDisp = make(chan map[Sender][]Encoder)
 	sr.talkIn = make(chan *Input) // Fan In
-	sr.signal = make(chan uint32)
-	sr.talkers = map[uint32]*talker{}
+	sr.signal = make(chan uint64)
+	sr.talkers = map[uint64]*talker{}
 
 	go sr.brain()
 	go sr.dispatcher()
@@ -81,7 +81,7 @@ func (sr *Server) listen() error {
 	}
 
 	defer listener.Close()
-	id := uint32(0)
+	id := uint64(0)
 	chConns := make(chan *net.TCPConn)
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, os.Interrupt)
