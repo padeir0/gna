@@ -88,7 +88,7 @@ func GameLogic(dt []*mgs.Input) map[mgs.Sender][]mgs.Encoder {
 	return out
 }
 
-func Protocol(d []byte) mgs.Encoder {
+func Protocol(d []byte) interface{} {
 	return Data(d)
 }
 
@@ -101,10 +101,6 @@ func Disconnection(id int) {
 }
 
 type Data []byte
-
-func (dt Data) MarshalBinary() ([]byte, error) {
-	return dt, nil
-}
 
 func (dt Data) Size() int {
 	return len(dt)

@@ -12,16 +12,47 @@ import (
 	"time"
 )
 
+var (
+	/*ErrBadPacketSize happens when the client sends the wrong packet size.
+	One or more packets may be dropped.*/
+	ErrBadPacketSize = errors.New("packet size specified by client was bigger than total bytes read")
+)
+
+/*Encoder permits the marshaling of the data structure into
+binary form, it's similar to encoding.BinaryMarshaler
+except it uses a given buffer to encode it, saving
+on allocations.
+*/
 type Encoder interface {
+	/*Size returns the total size of the data structure
+	to be marshaled, if the size is less than what the Encode
+	needs, an error or panic might ensue. (Depends on your implementation)*/
 	Size() int
+	/*Encode marshals the data structure into binary form, storing it into
+	the given buffer and returns an error if any.*/
 	Encode([]byte) error
 }
 
+/*Sender permits the dispatching of responses through the Dispatcher.
+It is implemented to reduce the time waiting for Syscalls to a minimum.*/
 type Sender interface {
-	Send(chan struct{}, []Encoder)
-	Retify(*map[uint64]*talker) bool
+	/*Send receives the data and a channel for signaling.
+	The data and signal should be sent to separate goroutine(s), and the
+	data only processed after the sig channel is closed.
+	The Send method should not halt, its only job is to send
+	the signal and data to a different goroutine.*/
+	Send(sig chan struct{}, data []Encoder)
+	/*Rectify receives a pointer to a map with the current available talkers and
+	returns if the dispatcher should proceed to the Send method. If
+	a implementation is independent of talkers, it should just ignore the
+	received pointer and return true. It is not safe to write to the map, only to read.
+	*/
+	Rectify(currTalkers *map[uint64]*talker) (send bool)
 }
 
+/*Input is a simple struct that contains
+the data sent from the talker and a pointer to the talker.
+*/
 type Input struct {
 	T    *talker
 	Data interface{}
@@ -31,6 +62,7 @@ func (i *Input) String() string {
 	return fmt.Sprintf("{%v %v}", i.T, i.Data)
 }
 
+/*Size returns the size of the struct in bytes*/
 func (i *Input) Size() int {
 	if v, ok := i.Data.(Encoder); ok {
 		return 8 + v.Size()
@@ -38,9 +70,10 @@ func (i *Input) Size() int {
 	return 8
 }
 
+/*Encode marshals the struct into the given buffer*/
 func (i *Input) Encode(buff []byte) error {
 	var err error
-	binary.BigEndian.PutUint64(buff, i.T.Id)
+	binary.BigEndian.PutUint64(buff, i.T.ID)
 	if v, ok := i.Data.(Encoder); ok {
 		err = v.Encode(buff[8:])
 	}
@@ -48,7 +81,8 @@ func (i *Input) Encode(buff []byte) error {
 }
 
 type talker struct {
-	Id   uint64
+	/*Talker ID*/
+	ID   uint64
 	conn *net.TCPConn
 	sr   *Server
 
@@ -62,28 +96,32 @@ type talker struct {
 	mu   sync.Mutex
 }
 
-func (t *talker) Retify(mp *map[uint64]*talker) bool {
-	if _, ok := (*mp)[t.Id]; !ok {
+/*Rectify returns true if the talker exists in the map*/
+func (t *talker) Rectify(mp *map[uint64]*talker) bool {
+	if _, ok := (*mp)[t.ID]; !ok {
 		return false
 	}
 	return true
 }
 
+/*Send sends the signal channel and data to the mouth of the talker*/
 func (t *talker) Send(sig chan struct{}, enc []Encoder) {
 	t.mouthSig <- sig
 	t.mouthDt <- enc
 }
 
+/*Terminate terminates the talker, executing Disconnect,
+closing the connection and the channels.*/
 func (t *talker) Terminate() {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	if !t.dead {
 		t.dead = true
 		t.conn.Close()
-		t.sr.signal <- t.Id // this transfers the execution to the dispatcher, deleting the talker
+		t.sr.signal <- t.ID // this transfers the execution to the dispatcher, deleting the talker
 		close(t.mouthSig)   // so the dispatcher knows to not send data to these channels
 		close(t.mouthDt)    // and it's safe to close them
-		t.sr.Disconnection(int(t.Id))
+		t.sr.Disconnection(int(t.ID))
 	}
 }
 
@@ -100,23 +138,22 @@ func (t *talker) start() {
 		}
 		return
 	}
-
-	if pkt, ok := t.sr.Validate(int(t.Id), dt); !ok {
+	pkt, ok := t.sr.Validate(int(t.ID), dt)
+	if !ok {
 		return
-	} else {
-		err = WriteTo(t.conn, pkt)
-		if err != nil {
-			log.Print(err)
-			return
-		}
+	}
+	err = writeTo(t.conn, pkt)
+	if err != nil {
+		log.Print(err)
+		return
 	}
 	c := make(chan struct{})
 	go func() {
-		defer func() {c<- struct{}{}}()
+		defer func() { c <- struct{}{} }()
 		t.mouth()
 	}()
 	go func() {
-		defer func() {c<- struct{}{}}()
+		defer func() { c <- struct{}{} }()
 		t.ear()
 	}()
 	<-c
@@ -153,7 +190,7 @@ func (t *talker) mouth() {
 			x += i
 			if err != nil {
 				if errors.Is(err, syscall.EPIPE) {
-					log.Println("Cancelling packets to: ", t.Id, ".", err)
+					log.Println("Cancelling packets to: ", t.ID, ".", err)
 					return
 				}
 				log.Println(err)
@@ -163,7 +200,7 @@ func (t *talker) mouth() {
 	}
 }
 
-func WriteTo(w io.Writer, enc Encoder) error {
+func writeTo(w io.Writer, enc Encoder) error {
 	size := enc.Size()
 	buff := make([]byte, 2+size)
 	binary.BigEndian.PutUint16(buff, uint16(size))
@@ -194,9 +231,15 @@ func (t *talker) ear() {
 			if opErr, ok := err.(*net.OpError); ok && opErr.Timeout() {
 				return
 			}
+			if err == ErrBadPacketSize {
+				continue
+			}
 			return
 		}
-		t.sr.talkIn <- &Input{t, t.sr.Unmarshaler(dt)}
+		unmarshaled := t.sr.Unmarshaler(dt)
+		if unmarshaled != nil {
+			t.sr.talkIn <- &Input{t, unmarshaled}
+		}
 	}
 }
 
@@ -207,6 +250,9 @@ func (t *talker) getPack() ([]byte, error) {
 	}
 	size := binary.BigEndian.Uint16(t.buff[t.i : t.i+2])
 	t.i += 2
+	if int(size) > t.n-t.i {
+		return nil, ErrBadPacketSize
+	}
 	err = t.fillBuffer(int(size))
 	if err != nil {
 		return nil, err
@@ -234,24 +280,30 @@ func (t *talker) fillBuffer(size int) error {
 	return nil
 }
 
+/*Group is a collection of talkers that is safe for concurrent use,
+This can be used to "multicast" a single piece o data to a set of talkers.
+*/
 type Group struct {
 	tMap map[uint64]*talker
 	mu   sync.Mutex
 }
 
+/*Add a talker to the Group*/
 func (g *Group) Add(t *talker) {
 	g.mu.Lock()
-	g.tMap[t.Id] = t
+	g.tMap[t.ID] = t
 	g.mu.Unlock()
 }
 
+/*Rm removes a talker from the Group*/
 func (g *Group) Rm(id uint64) {
 	g.mu.Lock()
 	delete(g.tMap, id)
 	g.mu.Unlock()
 }
 
-func (g *Group) Retify(mp *map[uint64]*talker) bool {
+/*Rectify removes talkers from the Group that are not in the given map*/
+func (g *Group) Rectify(mp *map[uint64]*talker) bool {
 	for id := range *mp {
 		if _, ok := g.tMap[id]; !ok {
 			g.Rm(id)
@@ -263,9 +315,10 @@ func (g *Group) Retify(mp *map[uint64]*talker) bool {
 	return true
 }
 
-func (g *Group) Send(sig chan struct{}, enc []Encoder) {
+/*Send sends the sig channel and data to each Talker in the group*/
+func (g *Group) Send(sig chan struct{}, data []Encoder) {
 	for _, t := range g.tMap {
 		t.mouthSig <- sig
-		t.mouthDt <- enc
+		t.mouthDt <- data
 	}
 }

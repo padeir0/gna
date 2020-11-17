@@ -28,7 +28,7 @@ func GameLogic(dt []*mgs.Input) map[uint32][]encoding.BinaryMarshaler {
 	out := make(map[uint32][]encoding.BinaryMarshaler, len(state.blobs))
 	for i := range inp {
 		v, _ := inp[i].Data.(Keys)
-		b := state.blobs[inp[i].T.Id]
+		b := state.blobs[inp[i].T.ID]
 		for j := range v {
 			switch v[j] {
 			case 'w':

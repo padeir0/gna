@@ -107,10 +107,9 @@ func (m *minion) start(data []packet) {
 }
 
 func sendPacket(conn net.Conn, size int, data string) (int, error) {
-	sizeAndtime := make([]byte, 10)
-	binary.BigEndian.PutUint16(sizeAndtime, uint16(size))
-	binary.BigEndian.PutUint64(sizeAndtime[2:], uint64(time.Now().UnixNano()))
-	buff := append(sizeAndtime, []byte(data)...)
+	bSize := make([]byte, 2)
+	binary.BigEndian.PutUint16(bSize, uint16(size))
+	buff := append(bSize, []byte(data)...)
 	time.Sleep(latency)
 	n, err := conn.Write(buff)
 	fmt.Println("Sent: ", buff[:n])

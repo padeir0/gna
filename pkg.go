@@ -9,16 +9,31 @@ import (
 	"time"
 )
 
+/*Server is a struct that defines properties of the underlying TCP server.
+ */
 type Server struct {
 	// Read only fields
-	Addr          string
-	Timeout       time.Duration // default 5 s
-	TickInterval  time.Duration // default 50 ms
-	Logic         func([]*Input) map[Sender][]Encoder
-	Unmarshaler   func([]byte) interface{}
-	Validate      func(int, []byte) (Encoder, bool)
-	Disconnection func(int) // default: does nothing
-	Verbose       bool
+
+	/*Server address in the form <ip>:<port> */
+	Addr string
+	/*Maximum time a client can be idle. Default: 5s*/
+	Timeout time.Duration
+	/*Interval between server ticks. Default: 50ms*/
+	TickInterval time.Duration
+	/*Logic is the game logic that handles inputs and returns the proper responses*/
+	Logic func([]*Input) map[Sender][]Encoder
+	/*Unmarshaler receives a byte packet and returns the proper object
+	to be used in the game logic*/
+	Unmarshaler func([]byte) interface{}
+	/*Validate is receives the first packet from the client
+	and returns a response and if the client is accepted
+	*/
+	Validate func(int, []byte) (Encoder, bool)
+	/*Disconnection receives the ID of the talker that is terminating
+	before the connection is closed. Default: does nothing
+	*/
+	Disconnection func(int)
+	Verbose       bool // should become Debug and do more things.
 
 	talkers map[uint64]*talker // only Dispatcher can modify, others just read
 
@@ -29,6 +44,7 @@ type Server struct {
 	brToDisp   chan map[Sender][]Encoder // Brain to Dispatcher
 }
 
+/*Start setups the server and starts it*/
 func (sr *Server) Start() error {
 	sr.fillDefault()
 
@@ -44,6 +60,11 @@ func (sr *Server) Start() error {
 	go sr.acumulator()
 
 	return sr.listen()
+}
+
+/*AllTalkers returns a *Group with all the talkers currently running*/
+func (sr *Server) AllTalkers() *Group {
+	return &Group{tMap: sr.talkers}
 }
 
 func (sr *Server) fillDefault() {
@@ -99,7 +120,7 @@ func (sr *Server) listen() error {
 		select {
 		case conn := <-chConns:
 			talker := talker{
-				Id:   id,
+				ID:   id,
 				conn: conn,
 				sr:   sr,
 			}
@@ -131,7 +152,9 @@ func (sr *Server) acumulator() {
 		select {
 		case <-ticker.C:
 			if i > 0 {
-				sr.acToBr <- buff[:i]
+				b := make([]*Input, i)
+				copy(buff[:i], b)
+				sr.acToBr <- b
 				i = 0
 			}
 		case msg := <-sr.talkIn:
@@ -154,15 +177,15 @@ func (sr *Server) dispatcher() {
 			}
 			continue // this may be useless
 		case newTalker := <-sr.newTalkers:
-			sr.talkers[newTalker.Id] = newTalker
+			sr.talkers[newTalker.ID] = newTalker
 			if sr.Verbose {
-				fmt.Println("New Talker: ", newTalker.Id)
+				fmt.Println("New Talker: ", newTalker.ID)
 			}
 		/* Create Workers to handle the writes*/
 		case data := <-sr.brToDisp:
 			c := make(chan struct{})
 			for send, encs := range data {
-				if send.Retify(&sr.talkers) {
+				if send.Rectify(&sr.talkers) {
 					send.Send(c, encs)
 				}
 			}
