@@ -10,11 +10,21 @@ import (
 	"time"
 )
 
-/*Server is a struct that defines properties of the underlying TCP server.
- */
-type Server struct {
-	// Read only fields
+/*NewTalker returns a talker that will receive and send messages
+in separate goroutines. talker.Start() itself should be called in a different goroutine.
+*/
+func NewTalker(id uint64, conn net.Conn, ctx *Context) *Talker {
+	return &Talker{
+		ID:   id,
+		conn: conn,
+		ctx:  ctx,
+	}
+}
 
+/*Server is a struct that defines properties of the underlying TCP server.
+Except otherwise noted, all fields are readonly.
+*/
+type Server struct {
 	/*Server address in the form <ip>:<port> */
 	Addr string
 	/*Maximum time a client can be idle. Default: 5s*/
@@ -37,25 +47,33 @@ type Server struct {
 	Verbose       bool // should become Debug and do more things.
 	MaxPlayers    int
 
-	talkers map[uint64]*talker // only Dispatcher can modify, others just read
+	ctx     *Context
+	talkers map[uint64]*Talker // only Dispatcher can write, others just read
 
-	signal     chan uint64               // for Talkers to signal termination to the Caster.
-	talkIn     chan *Input               // Data fan in from the Talkers to the Acumulator
-	newTalkers chan *talker              // send new Talkers to Caster
+	newTalkers chan *Talker              // send new Talkers to Caster
 	acToBr     chan []*Input             // Acumulator to Brain
 	brToDisp   chan map[Sender][]Encoder // Brain to Dispatcher
+
+	nextID id
 }
 
 /*Start setups the server and starts it*/
 func (sr *Server) Start() error {
 	sr.fillDefault()
 
-	sr.newTalkers = make(chan *talker)
+	sr.newTalkers = make(chan *Talker)
 	sr.acToBr = make(chan []*Input)
 	sr.brToDisp = make(chan map[Sender][]Encoder)
-	sr.talkIn = make(chan *Input) // Fan In
-	sr.signal = make(chan uint64)
-	sr.talkers = map[uint64]*talker{}
+	sr.talkers = map[uint64]*Talker{}
+
+	sr.ctx = &Context{
+		Out:         make(chan *Input),
+		TermSig:     make(chan uint64),
+		Timeout:     sr.Timeout,
+		Discon:      sr.Disconnection,
+		Unmarshaler: sr.Unmarshaler,
+		Validate:    sr.Validate,
+	}
 
 	go sr.brain()
 	go sr.dispatcher()
@@ -67,6 +85,22 @@ func (sr *Server) Start() error {
 /*AllTalkers returns a *Group with all the talkers currently running*/
 func (sr *Server) AllTalkers() *Group {
 	return &Group{tMap: sr.talkers}
+}
+
+/*AddTalker adds the talker to the dispatcher list*/
+func (sr *Server) AddTalker(t *Talker) {
+	sr.newTalkers <- t
+}
+
+/*NewTalkerID returns an incremental uint64 ID.
+This means you may run into problems if your server receives (2^64)-1 connections
+and the first few are still connected.
+This means more than 18 quintillion connections without a restart. Or in other terms,
+73 years if every single human alive sucessfully connects every second,
+not counting population growth of course.
+*/
+func (sr *Server) NewTalkerID() uint64 {
+	return sr.nextID.newID()
 }
 
 func (sr *Server) fillDefault() {
@@ -107,7 +141,6 @@ func (sr *Server) listen() error {
 	}
 
 	defer listener.Close()
-	id := uint64(0)
 	chConns := make(chan *net.TCPConn)
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, os.Interrupt)
@@ -133,14 +166,9 @@ func (sr *Server) listen() error {
 				conn.Close()
 				break
 			}
-			talker := talker{
-				ID:   id,
-				conn: conn,
-				sr:   sr,
-			}
-			sr.newTalkers <- &talker
-			go talker.start()
-			id++
+			t := NewTalker(sr.NewTalkerID(), conn, sr.ctx)
+			sr.AddTalker(t)
+			go t.Start()
 		case <-sig:
 			fmt.Println("Stopping server...")
 			for _, t := range sr.talkers {
@@ -171,7 +199,7 @@ func (sr *Server) acumulator() {
 				sr.acToBr <- b
 				i = 0
 			}
-		case msg := <-sr.talkIn:
+		case msg := <-sr.ctx.Out:
 			if i >= len(buff) {
 				buff = append(buff, make([]*Input, 50)...)
 			}
@@ -184,7 +212,7 @@ func (sr *Server) acumulator() {
 func (sr *Server) dispatcher() {
 	for {
 		select {
-		case id := <-sr.signal:
+		case id := <-sr.ctx.TermSig:
 			delete(sr.talkers, id)
 			if sr.Verbose {
 				fmt.Println("Terminating: ", id)
