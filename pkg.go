@@ -3,6 +3,7 @@ package mgs
 import (
 	"fmt"
 	"log"
+	"math"
 	"net"
 	"os"
 	"os/signal"
@@ -24,16 +25,17 @@ type Server struct {
 	Logic func([]*Input) map[Sender][]Encoder
 	/*Unmarshaler receives a byte packet and returns the proper object
 	to be used in the game logic*/
-	Unmarshaler func([]byte) interface{}
+	Unmarshaler func(*Packet) interface{}
 	/*Validate is receives the first packet from the client
 	and returns a response and if the client is accepted
 	*/
-	Validate func(int, []byte) (Encoder, bool)
+	Validate func(int, *Packet) (Encoder, bool)
 	/*Disconnection receives the ID of the talker that is terminating
 	before the connection is closed. Default: does nothing
 	*/
 	Disconnection func(int)
 	Verbose       bool // should become Debug and do more things.
+	MaxPlayers    int
 
 	talkers map[uint64]*talker // only Dispatcher can modify, others just read
 
@@ -89,6 +91,9 @@ func (sr *Server) fillDefault() {
 	if sr.Disconnection == nil {
 		sr.Disconnection = func(int) {} // dummy
 	}
+	if sr.MaxPlayers <= 0 {
+		sr.MaxPlayers = math.MaxInt64
+	}
 }
 
 func (sr *Server) listen() error {
@@ -111,6 +116,9 @@ func (sr *Server) listen() error {
 			conn, err := listener.AcceptTCP()
 			if err != nil {
 				log.Print(err)
+				if _, ok := err.(*net.OpError); ok {
+					return
+				}
 				continue
 			}
 			chConns <- conn
@@ -119,6 +127,11 @@ func (sr *Server) listen() error {
 	for {
 		select {
 		case conn := <-chConns:
+			if len(sr.talkers) >= sr.MaxPlayers {
+				//writeTo(conn, &[]byte{}, ErrServerFull)
+				conn.Close()
+				break
+			}
 			talker := talker{
 				ID:   id,
 				conn: conn,
@@ -153,7 +166,7 @@ func (sr *Server) acumulator() {
 		case <-ticker.C:
 			if i > 0 {
 				b := make([]*Input, i)
-				copy(buff[:i], b)
+				copy(b, buff[:i])
 				sr.acToBr <- b
 				i = 0
 			}

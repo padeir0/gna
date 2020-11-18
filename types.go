@@ -12,11 +12,11 @@ import (
 	"time"
 )
 
-var (
-	/*ErrBadPacketSize happens when the client sends the wrong packet size.
-	One or more packets may be dropped.*/
-	ErrBadPacketSize = errors.New("packet size specified by client was bigger than total bytes read")
-)
+// Packet is the output of the packet protocol running over tcp
+type Packet struct {
+	Tp   byte   // Packet Type
+	Data []byte // Packet Data
+}
 
 /*Encoder permits the marshaling of the data structure into
 binary form, it's similar to encoding.BinaryMarshaler
@@ -26,8 +26,10 @@ on allocations.
 type Encoder interface {
 	/*Size returns the total size of the data structure
 	to be marshaled, if the size is less than what the Encode
-	needs, an error or panic might ensue. (Depends on your implementation)*/
+	needs, an error might ensue. (Depends on your implementation)*/
 	Size() int
+	/*Type returns the packet type, for a list of available types see the protocol docs */
+	Type() byte
 	/*Encode marshals the data structure into binary form, storing it into
 	the given buffer and returns an error if any.*/
 	Encode([]byte) error
@@ -50,6 +52,31 @@ type Sender interface {
 	Rectify(currTalkers *map[uint64]*talker) (send bool)
 }
 
+func writeTo(w io.Writer, buff *[]byte, dt ...Encoder) error {
+	n := 0
+	for i := range dt {
+		size := dt[i].Size()
+		if n+size+3 >= len(*buff) {
+			*buff = append(*buff, make([]byte, 3+size)...)
+		}
+		binary.BigEndian.PutUint16((*buff)[n:], uint16(size))
+		n += 2
+		(*buff)[n] = dt[i].Type()
+		n += 1
+		err := dt[i].Encode((*buff)[n:])
+		n += size
+		if err != nil {
+			return err
+		}
+	}
+	_, err := w.Write((*buff)[:n])
+	if err != nil {
+		return err
+
+	}
+	return nil
+}
+
 /*Input is a simple struct that contains
 the data sent from the talker and a pointer to the talker.
 */
@@ -68,6 +95,14 @@ func (i *Input) Size() int {
 		return 8 + v.Size()
 	}
 	return 8
+}
+
+/*Type returns the type of the Packet.
+Since Input is only meant to be used for debugging and testing purposes,
+it receives the last possible Type, 255. In reality you can just ignore this.
+*/
+func (i *Input) Type() byte {
+	return 255
 }
 
 /*Encode marshals the struct into the given buffer*/
@@ -142,7 +177,7 @@ func (t *talker) start() {
 	if !ok {
 		return
 	}
-	err = writeTo(t.conn, pkt)
+	err = writeTo(t.conn, &[]byte{}, pkt)
 	if err != nil {
 		log.Print(err)
 		return
@@ -169,52 +204,12 @@ func (t *talker) mouth() {
 		}
 		dt = <-t.mouthDt
 		<-sig
-		n := 0
-		for i := range dt {
-			size := dt[i].Size()
-			if n+size >= len(buff) {
-				buff = append(buff, make([]byte, 2+size)...)
-			}
-			binary.BigEndian.PutUint16(buff[n:], uint16(size))
-			n += 2
-			err := dt[i].Encode(buff[n:])
-			n += size
-			if err != nil {
-				log.Println(err)
-				return
-			}
-		}
-		x := 0
-		for x < n {
-			i, err := t.conn.Write(buff[x:n])
-			x += i
-			if err != nil {
-				if errors.Is(err, syscall.EPIPE) {
-					log.Println("Cancelling packets to: ", t.ID, ".", err)
-					return
-				}
-				log.Println(err)
-				break
-			}
+		err := writeTo(t.conn, &buff, dt...)
+		if errors.Is(err, syscall.EPIPE) {
+			log.Println("Cancelling packets to: ", t.ID, ".", err)
+			return
 		}
 	}
-}
-
-func writeTo(w io.Writer, enc Encoder) error {
-	size := enc.Size()
-	buff := make([]byte, 2+size)
-	binary.BigEndian.PutUint16(buff, uint16(size))
-	err := enc.Encode(buff[2:])
-	if err != nil {
-		log.Println(err)
-		return err
-	}
-	_, err = w.Write(buff)
-	if err != nil {
-		log.Println(err)
-		return err
-	}
-	return nil
 }
 
 func (t *talker) ear() {
@@ -223,8 +218,7 @@ func (t *talker) ear() {
 		if err != nil {
 			log.Println(err)
 		}
-		dt, err := t.getPack()
-
+		pack, err := t.getPack()
 		// this error handling is still not good enough
 		if err != nil {
 			log.Println(err)
@@ -232,34 +226,34 @@ func (t *talker) ear() {
 				return
 			}
 			if err == ErrBadPacketSize {
-				continue
+				writeTo(t.conn, &[]byte{}, ErrBadPacketSize)
+				return
 			}
 			return
 		}
-		unmarshaled := t.sr.Unmarshaler(dt)
+		unmarshaled := t.sr.Unmarshaler(pack)
 		if unmarshaled != nil {
 			t.sr.talkIn <- &Input{t, unmarshaled}
 		}
 	}
 }
 
-func (t *talker) getPack() ([]byte, error) {
-	err := t.fillBuffer(2)
+func (t *talker) getPack() (*Packet, error) {
+	err := t.fillBuffer(3)
 	if err != nil {
 		return nil, err
 	}
 	size := binary.BigEndian.Uint16(t.buff[t.i : t.i+2])
 	t.i += 2
-	if int(size) > t.n-t.i {
-		return nil, ErrBadPacketSize
-	}
+	tp := t.buff[t.i] // type
+	t.i++
 	err = t.fillBuffer(int(size))
 	if err != nil {
 		return nil, err
 	}
 	oldI := t.i
 	t.i += int(size)
-	return t.buff[oldI:t.i], nil
+	return &Packet{tp, t.buff[oldI:t.i]}, nil
 }
 
 func (t *talker) fillBuffer(size int) error {
@@ -267,8 +261,13 @@ func (t *talker) fillBuffer(size int) error {
 		t.buff = append(t.buff, make([]byte, size-len(t.buff))...)
 	}
 	if remainder := t.n - t.i; remainder < size {
-		for i := t.i; i < t.n; i++ { // copy end of buffer to the beginning
-			t.buff[i-t.i] = t.buff[t.i+i]
+		for i := 0; i < remainder; i++ { // copy end of buffer to the beginning
+			t.buff[i] = t.buff[t.i+i]
+		}
+		if remainder < 0 || remainder > len(t.buff) {
+			t.i = 0
+			t.n = 0
+			return ErrBadPacketSize
 		}
 		n, err := t.conn.Read(t.buff[remainder:])
 		t.n = n + remainder

@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/binary"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -18,6 +19,10 @@ var loop *bool
 var interval time.Duration
 var keepAlive time.Duration
 var latency time.Duration
+
+var (
+	ErrBadPacketSize = errors.New("packet size specified by server was bigger than total bytes read")
+)
 
 type packet struct {
 	size int
@@ -87,12 +92,12 @@ func (m *minion) start(data []packet) {
 		}
 		if *read {
 			for nOfPkts > 0 {
-				b, err := m.getPack()
+				tp, b, err := m.getPack()
 				if err == io.EOF {
 					return
 				}
 				Error(err)
-				fmt.Println("Recv: ", b)
+				fmt.Printf("Recv: %v, Type: %v\n", b, tp)
 				nOfPkts--
 			}
 		}
@@ -107,9 +112,10 @@ func (m *minion) start(data []packet) {
 }
 
 func sendPacket(conn net.Conn, size int, data string) (int, error) {
-	bSize := make([]byte, 2)
-	binary.BigEndian.PutUint16(bSize, uint16(size))
-	buff := append(bSize, []byte(data)...)
+	header := make([]byte, 3)
+	binary.BigEndian.PutUint16(header, uint16(size))
+	header[2] = 2
+	buff := append(header, []byte(data)...)
 	time.Sleep(latency)
 	n, err := conn.Write(buff)
 	fmt.Println("Sent: ", buff[:n])
@@ -122,33 +128,40 @@ func Error(err error) {
 	}
 }
 
-func (m *minion) getPack() ([]byte, error) {
-	err := m.fillBuffer(2)
+func (t *minion) getPack() (byte, []byte, error) {
+	err := t.fillBuffer(3)
 	if err != nil {
-		return nil, err
+		return 0, nil, err
 	}
-	size := binary.BigEndian.Uint16(m.buff[m.i : m.i+2])
-	m.i += 2
-	err = m.fillBuffer(int(size))
+	size := binary.BigEndian.Uint16(t.buff[t.i : t.i+2])
+	t.i += 2
+	tp := t.buff[t.i] // type
+	t.i++
+	err = t.fillBuffer(int(size))
 	if err != nil {
-		return nil, err
+		return 0, nil, err
 	}
-	oldI := m.i
-	m.i += int(size)
-	return m.buff[oldI:m.i], nil
+	oldI := t.i
+	t.i += int(size)
+	return tp, t.buff[oldI:t.i], nil
 }
 
-func (m *minion) fillBuffer(size int) error {
-	if size > len(m.buff) {
-		m.buff = append(m.buff, make([]byte, size-len(m.buff))...)
+func (t *minion) fillBuffer(size int) error {
+	if size > len(t.buff) {
+		t.buff = append(t.buff, make([]byte, size-len(t.buff))...)
 	}
-	if remainder := m.n - m.i; remainder < size {
-		for i := m.i; i < m.n; i++ { // copy end of buffer to the beginning
-			m.buff[i-m.i] = m.buff[m.i+i]
+	if remainder := t.n - t.i; remainder < size {
+		for i := 0; i < remainder; i++ { // copy end of buffer to the beginning
+			t.buff[i] = t.buff[t.i+i]
 		}
-		n, err := m.conn.Read(m.buff[remainder:])
-		m.n = n + remainder
-		m.i = 0
+		if remainder < 0 || remainder > len(t.buff) {
+			t.i = 0
+			t.n = 0
+			return ErrBadPacketSize
+		}
+		n, err := t.conn.Read(t.buff[remainder:])
+		t.n = n + remainder
+		t.i = 0
 		if err != nil {
 			return err
 		}

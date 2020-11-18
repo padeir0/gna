@@ -18,6 +18,7 @@ func main() {
 		Validate:      Validate,
 		Disconnection: Disconnection,
 		Verbose:       true,
+		MaxPlayers:    2,
 	}
 	fmt.Println(server.Start())
 }
@@ -34,12 +35,12 @@ func GameLogic(dt []*mgs.Input) map[mgs.Sender][]mgs.Encoder {
 	return out
 }
 
-func Protocol(d []byte) interface{} {
-	return Data(d)
+func Protocol(p *mgs.Packet) interface{} {
+	return Data(p.Data)
 }
 
-func Validate(id int, a []byte) (mgs.Encoder, bool) {
-	return Data(a), true
+func Validate(id int, p *mgs.Packet) (mgs.Encoder, bool) {
+	return Data(p.Data), true
 }
 
 func Disconnection(id int) {
@@ -50,6 +51,10 @@ type Data []byte
 
 func (dt Data) Size() int {
 	return len(dt)
+}
+
+func (dt Data) Type() byte {
+	return 2
 }
 
 func (dt Data) Encode(buff []byte) error {
