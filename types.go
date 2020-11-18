@@ -133,8 +133,8 @@ func (i *Input) Encode(buff []byte) error {
 /*Context is a readonly struct that defines the behaviour of a talker*/
 type Context struct {
 	Timeout     time.Duration
-	Discon      func(int)
-	Validate    func(int, *Packet) (Encoder, bool)
+	Discon      func(uint64)
+	Validate    func(uint64, *Packet) (Encoder, bool)
 	TermSig     chan uint64
 	Out         chan *Input
 	Unmarshaler func(*Packet) interface{}
@@ -185,7 +185,7 @@ func (t *Talker) Terminate() {
 		t.ctx.TermSig <- t.ID // this transfers the execution to the dispatcher, deleting the talker
 		close(t.mouthSig)     // so the dispatcher knows to not send data to these channels
 		close(t.mouthDt)      // and it's safe to close them
-		t.ctx.Discon(int(t.ID))
+		t.ctx.Discon(t.ID)
 	}
 }
 
@@ -206,7 +206,7 @@ func (t *Talker) Start() {
 		}
 		return
 	}
-	pkt, ok := t.ctx.Validate(int(t.ID), dt)
+	pkt, ok := t.ctx.Validate(t.ID, dt)
 	if !ok {
 		return
 	}

@@ -92,11 +92,11 @@ func Protocol(p *mgs.Packet) interface{} {
 	return Data(p.Data)
 }
 
-func Validate(id int, p *mgs.Packet) (mgs.Encoder, bool) {
+func Validate(id uint64, p *mgs.Packet) (mgs.Encoder, bool) {
 	return Data(p.Data), true
 }
 
-func Disconnection(id int) {
+func Disconnection(id uint64) {
 	fmt.Println(id, "Disconnected")
 }
 

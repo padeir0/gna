@@ -1,17 +1,16 @@
 package main
 
 import (
-	"encoding"
 	"github.com/kazhmir/mgs"
 	"log"
-	"sort"
 )
 
 var password = []byte("MyPassWord")
 var state = NewGameState(500)
+var server *mgs.Server
 
 func main() {
-	server := mgs.Server{
+	server = &mgs.Server{
 		Addr:          "localhost:8888",
 		Logic:         GameLogic,
 		Unmarshaler:   Protocol,
@@ -22,13 +21,10 @@ func main() {
 	log.Fatal(server.Start())
 }
 
-func GameLogic(dt []*mgs.Input) map[uint32][]encoding.BinaryMarshaler {
-	inp := inputByTime(dt)
-	sort.Sort(&inp)
-	out := make(map[uint32][]encoding.BinaryMarshaler, len(state.blobs))
-	for i := range inp {
-		v, _ := inp[i].Data.(Keys)
-		b := state.blobs[inp[i].T.ID]
+func GameLogic(dt []*mgs.Input) map[mgs.Sender][]mgs.Encoder {
+	for i := range dt {
+		v, _ := dt[i].Data.(Keys)
+		b := state.blobs[dt[i].T.ID]
 		for j := range v {
 			switch v[j] {
 			case 'w':
@@ -42,46 +38,37 @@ func GameLogic(dt []*mgs.Input) map[uint32][]encoding.BinaryMarshaler {
 			}
 		}
 	}
-	for k1 := range state.blobs {
-		out[k1] = make([]encoding.BinaryMarshaler, len(state.blobs))
-		i := 0
-		for _, b := range state.blobs {
-			out[k1][i] = b
-			i++
-		}
-		out[k1] = out[k1][:i]
-	}
-	return out
+	return map[mgs.Sender][]mgs.Encoder{server.AllTalkers(): state.Blobs()}
 }
 
-func Protocol(b []byte) encoding.BinaryMarshaler {
+func Protocol(p *mgs.Packet) interface{} {
 	out := make([]byte, 4)
 	var n int
-	for i := range b {
-		switch b[i] {
+	for i := range p.Data {
+		switch p.Data[i] {
 		case 'w', 'a', 's', 'd':
 			if n >= 5 {
 				break
 			}
-			out[n] = b[i]
+			out[n] = p.Data[i]
 			n++
 		}
 	}
 	return Keys(out[:n])
 }
 
-func Validate(id uint32, b []byte) (encoding.BinaryMarshaler, bool) {
-	if len(b) != len(password) {
+func Validate(id uint64, b *mgs.Packet) (mgs.Encoder, bool) {
+	if len(b.Data) != len(password) {
 		return nil, false
 	}
-	for i := range b {
-		if b[i] != password[i] {
+	for i := range b.Data {
+		if b.Data[i] != password[i] {
 			return nil, false
 		}
 	}
 	return state.NewBlob(id), true
 }
 
-func DeSpawn(id uint32) {
+func DeSpawn(id uint64) {
 	state.RmBlob(id)
 }

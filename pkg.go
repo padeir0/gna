@@ -39,11 +39,11 @@ type Server struct {
 	/*Validate is receives the first packet from the client
 	and returns a response and if the client is accepted
 	*/
-	Validate func(int, *Packet) (Encoder, bool)
+	Validate func(uint64, *Packet) (Encoder, bool)
 	/*Disconnection receives the ID of the talker that is terminating
 	before the connection is closed. Default: does nothing
 	*/
-	Disconnection func(int)
+	Disconnection func(uint64)
 	Verbose       bool // should become Debug and do more things.
 	MaxPlayers    int
 
@@ -123,7 +123,7 @@ func (sr *Server) fillDefault() {
 		panic("Server.Validate cannot be nil!")
 	}
 	if sr.Disconnection == nil {
-		sr.Disconnection = func(int) {} // dummy
+		sr.Disconnection = func(uint64) {} // dummy
 	}
 	if sr.MaxPlayers <= 0 {
 		sr.MaxPlayers = math.MaxInt64
