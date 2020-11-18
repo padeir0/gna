@@ -127,6 +127,7 @@ func (sr *Server) listen() error {
 	for {
 		select {
 		case conn := <-chConns:
+			// racy but doesn't matter in this context
 			if len(sr.talkers) >= sr.MaxPlayers {
 				//writeTo(conn, &[]byte{}, ErrServerFull)
 				conn.Close()

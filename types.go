@@ -196,7 +196,7 @@ func (t *talker) start() {
 
 func (t *talker) mouth() {
 	dt := []Encoder{}
-	buff := make([]byte, 256)
+	wBuff := make([]byte, 256)
 	for {
 		sig, ok := <-t.mouthSig
 		if sig == nil || !ok {
@@ -204,7 +204,7 @@ func (t *talker) mouth() {
 		}
 		dt = <-t.mouthDt
 		<-sig
-		err := writeTo(t.conn, &buff, dt...)
+		err := writeTo(t.conn, &wBuff, dt...)
 		if errors.Is(err, syscall.EPIPE) {
 			log.Println("Cancelling packets to: ", t.ID, ".", err)
 			return
