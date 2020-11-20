@@ -354,3 +354,10 @@ func (g *Group) Send(sig chan struct{}, data []Encoder) {
 		t.mouthDt <- data
 	}
 }
+
+func (g *Group) Len() int {
+	g.mu.Lock()
+	out := len(g.tMap)
+	g.mu.Unlock()
+	return out
+}
