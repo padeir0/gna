@@ -1,35 +1,69 @@
 package main
 
 import (
+	"errors"
 	"github.com/kazhmir/mgs"
 	"github.com/kazhmir/mgs/examples/blobs/shared"
 	"log"
+	"sync"
+	"time"
 )
 
-var password = []byte("MyPassWord")
-var state = NewGameState(500)
-var evl = &EventList{list: make([]mgs.Encoder, 128)}
-var server *mgs.Server
-
 func main() {
-	server = &mgs.Server{
-		Addr:          "localhost:8888",
-		Logic:         GameLogic,
-		Unmarshaler:   Protocol,
-		Validate:      Validate,
-		Disconnection: DeSpawn,
-		Verbose:       true,
+	server := Server{
+		make(map[uint64]*shared.Blob, 64),
+		500,
+		&EventList{list: make([]*shared.Event, 128)},
+		sync.Mutex{},
 	}
-	log.Fatal(server.Start())
+	mgs.SetStdTimeout(5 * time.Second)
+	mgs.SetStdTPS(20) // 20 ticks per second. It's the rate at which you process user data.
+	ins := mgs.NewInstance(&server)
+	if err := mgs.RunServer("0.0.0.0:8888", ins); err != nil {
+		log.Fatal(err) // if the user uses SIGTERM, the server tries to stop without errors.
+	}
+	/*
+	   to create new instances:
+
+	   ins := mgs.NewInstance(Server)
+	   Player.SetInstance(ins)
+
+	   if done in the Auth method it can serve as load balancing, if the Auth doesn't set the instance
+	   the default is the main instance of the server.
+
+	   instances can be set inside Server.Update too
+
+	   If the given instance is not running, the package will return an error or panic?
+	*/
 }
 
-func GameLogic(dt []*mgs.Input) map[mgs.Sender][]mgs.Encoder {
-	out := evl.Consume()
-	out = append(out, make([]mgs.Encoder, server.AllTalkers().Len())...)
+type Server struct {
+	blobs map[uint64]*shared.Blob
+	size  int
+	evl   *EventList
+	mu    sync.Mutex
+}
+
+/* The following functions do not send messages through channels,
+instead they only append the data into a buffer with the necessary
+information to dispatch it to the receivers
+
+disp.Broadcast(out...) // Mark data to Send to all talkers
+disp.Multicast(mgs.Group, out...) // Mark data to Send to a group of talkers
+disp.Unicast(mgs.Conn, out...) // Mark data to Send to a single talker
+
+the disp.Dispatch() then sends the messages through channels,
+and signals for the work to start, similar to older implementation
+*/
+func (sr *Server) Update(ins *mgs.Instance) {
+	sr.mu.Lock()
+	defer sr.mu.Unlock()
+	ins.Broadcast(sr.Events()...) // the client will receive this as a bunch of *shared.Events
+	data := ins.GetData()
 	var n int
-	for i := range dt {
-		v, _ := dt[i].Data.(Keys)
-		b := state.blobs[dt[i].T.ID]
+	for _, input := range data {
+		v, _ := input.Data.(string)
+		b := sr.blobs[input.P.ID]
 		for j := range v {
 			switch v[j] {
 			case 'w':
@@ -42,45 +76,71 @@ func GameLogic(dt []*mgs.Input) map[mgs.Sender][]mgs.Encoder {
 				b.Rotate(true)
 			}
 		}
-		if n >= len(out) {
-			out = append(out, make([]mgs.Encoder, 10)...)
-		}
-		out[n] = b
+		ins.Broadcast(b)
 		n++
 	}
-	return map[mgs.Sender][]mgs.Encoder{server.AllTalkers(): out}
 }
 
-func Protocol(p *mgs.Packet) interface{} {
-	out := make([]byte, 4)
-	var n int
-	for i := range p.Data {
-		switch p.Data[i] {
-		case 'w', 'a', 's', 'd':
-			if n >= 5 {
-				break
-			}
-			out[n] = p.Data[i]
-			n++
-		}
-	}
-	return Keys(out[:n])
+/*It may not be safe to send messages to the conn at this time
+since it may terminate due to client disconnection or crash.
+Make the Dispatcher handle this instead of each talker goroutine?
+*/
+func (sr *Server) Disconn(p *mgs.Player) {
+	sr.RmBlob(p.ID)
 }
 
-func Validate(id uint64, b *mgs.Packet) (mgs.Encoder, bool) {
-	if len(b.Data) != len(password) {
-		return nil, false
+func (sr *Server) Auth(p *mgs.Player) {
+	var a shared.Auth
+	err := p.Recv(&a)
+	if err != nil {
+		log.Println(err)
+		p.Terminate()
 	}
-	for i := range b.Data {
-		if b.Data[i] != password[i] {
-			return nil, false
-		}
+	if a.Pwd == "password" {
+		p.Send(sr.NewBlob(p.ID))
 	}
-	evl.Add(&shared.Event{ID: id, T: shared.EBorn})
-	return state.NewBlob(id), true
+	p.Send(errors.New("invalid password"))
+	p.Terminate()
 }
 
-func DeSpawn(id uint64) {
-	state.RmBlob(id)
-	evl.Add(&shared.Event{ID: id, T: shared.EDied})
+func (gm *Server) NewBlob(id uint64) *shared.Blob {
+	b := &shared.Blob{}
+	gm.mu.Lock()
+	gm.blobs[id] = b
+	gm.evl.Add(&shared.Event{ID: id, T: shared.EBorn})
+	gm.mu.Unlock()
+	return b.Spawn(gm.size)
+}
+
+func (gm *Server) RmBlob(id uint64) {
+	gm.mu.Lock()
+	delete(gm.blobs, id)
+	gm.evl.Add(&shared.Event{ID: id, T: shared.EDied})
+	gm.mu.Unlock()
+}
+
+func (gm *Server) Events() []interface{} {
+	return gm.evl.Consume()
+}
+
+type EventList struct {
+	list []*shared.Event
+	i    int
+}
+
+func (evl *EventList) Add(e *shared.Event) {
+	if evl.i >= len(evl.list) {
+		evl.list = append(evl.list, make([]*shared.Event, 64)...)
+	}
+	evl.list[evl.i] = e
+	evl.i++
+}
+
+func (evl *EventList) Consume() []interface{} {
+	out := make([]interface{}, evl.i)
+	for i := 0; i < evl.i; i++ {
+		out[i] = evl.list[i]
+	}
+	evl.i = 0
+	return out
 }

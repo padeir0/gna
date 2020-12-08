@@ -2,12 +2,10 @@ package main
 
 import (
 	"flag"
-	"fmt"
+	//"fmt"
 	"github.com/hajimehoshi/ebiten"
-	"github.com/hajimehoshi/ebiten/ebitenutil"
 	"image"
 	_ "image/png"
-	"math"
 	"os"
 	//"time"
 )
@@ -15,55 +13,36 @@ import (
 const (
 	scrWid = 800
 	scrHei = 600
-	entWid = 50
-	entHei = 50
 )
 
 var (
-	ball       *ebiten.Image
-	evilBall   *ebiten.Image
-	pName      string
-	toServer   chan posVec
-	fromServer chan []byte
-	serverAddr *string
-	player     *entity
-	playerIn   chan posVec
-	serverOut  chan map[byte][]*message
+	D          = float64(0)
+	serverAddr = flag.String("host", "localhost:8888", "Host address <ip>:<port>")
+	pwd        = flag.String("pwd", "password", "Host Password")
 )
 
 func main() {
-	ball = getImage("ball.png")
-	evilBall = getImage("ballevil.png")
+	ball, d := getImage("ball.png")
 	ebiten.SetWindowSize(scrWid, scrHei)
-	ebiten.SetWindowTitle("Pew Pew")
+	ebiten.SetWindowTitle("Blobs")
 	ebiten.SetMaxTPS(30)
-	game := &Game{}
-	//rand.Seed(time.Now().UnixNano())
-
-	serverAddr = flag.String("h", "localhost:8888", "Host address <ip>:<port>")
+	game := &Game{blobs: make(map[uint64]*Blob, 16)}
 	flag.Parse()
-	args := flag.Args()
-	if len(args) != 1 {
-		fmt.Println("NEEDS USERNAME BEEP BEEP")
-		return
-	}
 
-	pIn, srvOut, err := connectTo(*serverAddr)
-	if err != nil {
-		panic(err)
-	}
-	playerIn = pIn
-	serverOut = srvOut
-
-	game.player = player
-	game.player.spawn(player.x, player.y)
+	// client, player := Connect(*serverAddr, *pwd)
+	// game.conn = client
+	// game.playerID = player.ID
+	// game.blobs[player.ID] = player
+	game.playerID = 0
+	game.blobs[0] = &Blob{d: d, img: ball}
+	D = d
 
 	if err := ebiten.RunGame(game); err != nil {
 		panic(err)
 	}
 }
 
-func getImage(file string) *ebiten.Image {
+func getImage(file string) (EImg *ebiten.Image, diameter float64) {
 	reader, err := os.Open(file)
 	if err != nil {
 		panic(err)
@@ -73,5 +52,7 @@ func getImage(file string) *ebiten.Image {
 	if err != nil {
 		panic(err)
 	}
-	return ebiten.NewImageFromImage(img)
+	EImg = ebiten.NewImageFromImage(img)
+	w, _ := EImg.Size() // image is a square
+	return EImg, float64(w)
 }

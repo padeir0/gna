@@ -4,42 +4,39 @@ import (
 	"fmt"
 	"github.com/hajimehoshi/ebiten"
 	"github.com/hajimehoshi/ebiten/ebitenutil"
+	//"github.com/kazhmir/mgs"
+	"github.com/kazhmir/mgs/examples/blobs/shared"
 	"math"
-	"math/rand"
+	"sync"
 )
 
 type Game struct {
-	player *entity
-	others []*entity
+	playerID uint64
+	blobs    map[uint64]*Blob
+	mu       sync.Mutex
+	// conn *mgs.Client
 }
 
 func (g *Game) Update() error {
+	// g.ServerUpdate()
 	if ebiten.IsKeyPressed(ebiten.KeyS) {
-		g.player.moveBackward()
+		g.Player().Move(true)
 	}
 	if ebiten.IsKeyPressed(ebiten.KeyW) {
-		g.player.moveFoward()
+		g.Player().Move(false)
 	}
 	if ebiten.IsKeyPressed(ebiten.KeyD) {
-		g.player.rotateRight()
+		g.Player().Rotate(true)
 	}
 	if ebiten.IsKeyPressed(ebiten.KeyA) {
-		g.player.rotateLeft()
-	}
-	if ebiten.IsKeyPressed(ebiten.KeySpace) {
-		g.player.fire()
+		g.Player().Rotate(false)
 	}
 	return nil
 }
 
 func (g *Game) Draw(screen *ebiten.Image) {
-	if g.player.alive {
-		g.player.draw(screen)
-	}
-	for i := range g.others {
-		if g.others[i].alive {
-			g.others[i].draw(screen)
-		}
+	for i := range g.blobs {
+		g.blobs[i].draw(screen)
 	}
 }
 
@@ -47,84 +44,63 @@ func (g *Game) Layout(outWid, outHei int) (int, int) {
 	return scrWid, scrHei
 }
 
-func newEntity(x, y float64, evil bool) *entity {
-	out := &entity{
-		x: float64(rand.Intn(scrWid - 50)),
-		y: float64(rand.Intn(scrHei - 50)),
+func (g *Game) AddBlob(b *Blob) {
+	g.mu.Lock()
+	g.blobs[b.ID] = b
+	g.mu.Unlock()
+}
+
+func (g *Game) RmBlob(id uint64) {
+	g.mu.Lock()
+	delete(g.blobs, id)
+	g.mu.Unlock()
+}
+
+func (g *Game) Player() *Blob {
+	return g.blobs[g.playerID]
+}
+
+/*
+func (g *Game) ServerUpdate() error {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	for _, data := range g.conn.RecvAll() {
+		switch v := data.(type) {
+		case shared.Blob:
+			g.blobs[v.ID] = v
+		case shared.Event:
+			switch v.T {
+			case shared.EDied:
+				g.RmBlob(v.ID)
+			case shared.EBorn:
+				b := &Blob{
+					d: D,
+					img: ball,
+					blob: {ID: v.ID},
+				}
+				g.AddBlob()
+			}
+		}
 	}
-	if evil {
-		out.img = evilBall
-		out.w, out.h = evilBall.Size()
-	} else {
-		out.img = ball
-		out.w, out.h = ball.Size()
-	}
-	return out
+}
+*/
+
+type Blob struct {
+	d   float64
+	img *ebiten.Image
+	shared.Blob
 }
 
-type entity struct {
-	x, y, rot          float64
-	oldX, oldY, oldRot float64
-	w, h               int
-	health             int
-	img                *ebiten.Image
-	alive              bool
-}
-
-func (ent *entity) spawn(x, y float64) {
-	ent.alive = true
-	ent.x = x
-	ent.y = y
-}
-
-func (ent *entity) deSpawn() {
-	ent.alive = false
-}
-
-func (ent *entity) draw(screen *ebiten.Image) {
+func (ent *Blob) draw(screen *ebiten.Image) {
 	newOp := &ebiten.DrawImageOptions{}
-	//x, y, rot := ent.getMovement()
-	offsetx := float64(ent.w) / 2
-	offsety := float64(ent.h) / 2
+	offsetx := ent.d / 2
+	offsety := ent.d / 2
 	newOp.GeoM.Translate(-offsetx, -offsety)
-	newOp.GeoM.Rotate(ent.rot)
-	newOp.GeoM.Translate(ent.x+offsetx, ent.y+offsety)
+	newOp.GeoM.Rotate(ent.Blob.Rot)
+	newOp.GeoM.Translate(ent.Blob.P.X+offsetx, ent.Blob.P.Y+offsety)
 
 	screen.DrawImage(ent.img, newOp)
-	sin, cos := math.Sincos(ent.rot)
-	s := fmt.Sprintf("x: %v, y: %v, rot: %v\nsin: %v, cos: %v", ent.x, ent.y, ent.rot, sin, cos)
+	sin, cos := math.Sincos(ent.Blob.Rot)
+	s := fmt.Sprintf("x: %v, y: %v, rot: %v\nsin: %v, cos: %v", ent.Blob.P.X, ent.Blob.P.Y, ent.Blob.Rot, sin, cos)
 	ebitenutil.DebugPrint(screen, s)
-}
-
-func (ent *entity) getMovement() (x float64, y float64, rot float64) {
-	x = ent.x - ent.oldX
-	y = ent.y - ent.oldY
-	rot = ent.rot - ent.oldRot
-	ent.oldX = ent.x
-	ent.oldY = ent.y
-	ent.oldRot = ent.rot
-	return x, y, rot
-}
-
-func (ent *entity) moveFoward() {
-	sin, cos := math.Sincos(ent.rot)
-	ent.x += sin * 5
-	ent.y -= cos * 5
-}
-
-func (ent *entity) moveBackward() {
-	sin, cos := math.Sincos(ent.rot)
-	ent.x -= sin * 5
-	ent.y += cos * 5
-}
-
-func (ent *entity) rotateLeft() {
-	ent.rot -= math.Pi / 30
-}
-
-func (ent *entity) rotateRight() {
-	ent.rot += math.Pi / 30
-}
-
-func (ent *entity) fire() {
 }

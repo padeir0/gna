@@ -3,24 +3,11 @@ package main
 import (
 	"fmt"
 	"github.com/kazhmir/mgs"
-	"time"
 )
 
 var server mgs.Server
 
 func main() {
-	server = mgs.Server{
-		Addr:          "localhost:8888",
-		Timeout:       time.Second * 10,
-		TickInterval:  time.Millisecond * 100,
-		Logic:         GameLogic,
-		Unmarshaler:   Protocol,
-		Validate:      Validate,
-		Disconnection: Disconnection,
-		Verbose:       true,
-		MaxPlayers:    2,
-	}
-	fmt.Println(server.Start())
 }
 
 func GameLogic(dt []*mgs.Input) map[mgs.Sender][]mgs.Encoder {
