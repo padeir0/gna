@@ -1,7 +1,6 @@
 package mgs
 
 import (
-	"bufio"
 	"encoding/gob"
 	"errors"
 	"log"
@@ -12,13 +11,11 @@ import (
 )
 
 func newPlayer(id uint64, c net.Conn) *Player {
-	r := bufio.NewReader(c)
-	w := bufio.NewWriter(c)
 	return &Player{
 		ID:      id,
 		conn:    c,
-		enc:     gob.NewEncoder(w),
-		dec:     gob.NewDecoder(r),
+		enc:     gob.NewEncoder(c),
+		dec:     gob.NewDecoder(c),
 		mouthDt: make(chan []interface{}),
 	}
 }
@@ -44,16 +41,21 @@ type Player struct {
 }
 
 func (p *Player) SetInstance(ins *Instance) {
-	p.ins.disp.rmPlayer(p.ID)
+	if p.ins != nil {
+		p.ins.disp.rmPlayer(p.ID)
+	}
 	p.ins = ins
+	p.ins.disp.addPlayer(p)
 }
 
 func (p *Player) Send(dt interface{}) error {
 	return p.enc.Encode(&dt)
 }
 
-func (p *Player) Recv(dt interface{}) error {
-	return p.dec.Decode(&dt)
+func (p *Player) Recv() (interface{}, error) {
+	var dt interface{}
+	err := p.dec.Decode(&dt)
+	return dt, err
 }
 
 /*Rectify returns true if the talker exists in the map*/
@@ -75,13 +77,14 @@ func (p *Player) Terminate() {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if !p.started {
-		p.conn.Close()
 		p.dead = true
+		p.conn.Close()
 		return
 	}
 	if !p.dead {
 		p.dead = true
 		p.ins.handler.Disconn(p)
+		p.conn.Close()
 		p.ins.disp.rmPlayer(p.ID)
 		close(p.mouthDt)
 	}
@@ -93,18 +96,13 @@ The mouth goroutine waits for responses from the dispatcher and writes them to t
 */
 func (p *Player) start() {
 	p.started = true
-	go func() {
-		defer p.Terminate()
-		p.mouth()
-	}()
-	go func() {
-		defer p.Terminate()
-		p.ear()
-	}()
+	go p.mouth()
+	go p.ear()
 }
 
 func (p *Player) mouth() {
 	dt := []interface{}{}
+	defer p.Terminate()
 	for {
 		dt = <-p.mouthDt
 		for i := range dt {
@@ -123,13 +121,13 @@ func (p *Player) mouth() {
 }
 
 func (p *Player) ear() {
+	defer p.Terminate()
 	for {
 		err := p.conn.SetReadDeadline(time.Now().Add(p.ins.timeout))
 		if err != nil {
 			log.Println(err)
 		}
-		var dt interface{}
-		err = p.Recv(&dt)
+		dt, err := p.Recv()
 		if err != nil {
 			log.Println(err)
 			/*if opErr, ok := err.(*net.OpError); ok && opErr.Timeout() {

@@ -68,6 +68,7 @@ func (is *acumulator) consume() []*Input {
 	is.mu.Lock()
 	out := make([]*Input, is.i)
 	copy(out, is.dt[:is.i])
+	is.i = 0
 	is.mu.Unlock()
 	return out
 }
@@ -86,16 +87,14 @@ func (dp *dispatcher) addPlayer(p *Player) {
 
 func (dp *dispatcher) rmPlayer(id uint64) {
 	dp.mu.Lock()
+	defer dp.mu.Unlock()
 	delete(dp.p, id)
-	dp.mu.Unlock()
 }
 
-func (dp *dispatcher) killAll() {
-	dp.mu.Lock()
-	for id := range dp.p {
-		dp.p[id].Terminate()
+func (dp *dispatcher) killAll() { // this will probable go bad
+	for _, p := range dp.p {
+		p.Terminate()
 	}
-	dp.mu.Unlock()
 }
 
 func (dp *dispatcher) dispatch() {
@@ -117,6 +116,9 @@ func (dp *dispatcher) currPlayers() *Group {
 
 func (dp *dispatcher) addDisp(s Sender, dt []interface{}) {
 	dp.mu.Lock()
+	if old, ok := dp.d[s]; ok {
+		dt = append(old, dt...)
+	}
 	dp.d[s] = dt
 	dp.mu.Unlock()
 }

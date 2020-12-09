@@ -61,6 +61,7 @@ func (m *minion) start(data []string) {
 	for {
 		for i := range data {
 			go func() {
+				fmt.Println("sending: ", data[i])
 				err := m.cli.Send(data[i])
 				Error(err)
 				nOfPkts++
@@ -69,13 +70,15 @@ func (m *minion) start(data []string) {
 		}
 		if *read {
 			for nOfPkts > 0 {
-				var s string
-				m.cli.Recv(&s)
+				dt, err := m.cli.Recv()
 				if err == io.EOF {
 					return
 				}
 				Error(err)
-				fmt.Printf("Recv: %v", s)
+				s, ok := dt.(string)
+				if ok {
+					fmt.Printf("Recv: %s\n", s)
+				}
 				nOfPkts--
 			}
 		}

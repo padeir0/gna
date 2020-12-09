@@ -1,9 +1,10 @@
 package mgs
 
 import (
-	"bufio"
+	//	"bufio"
 	"encoding/gob"
 	"errors"
+	//	"fmt"
 	"log"
 	"net"
 	"sync"
@@ -16,12 +17,12 @@ func Dial(addr string) (*Client, error) {
 	if err != nil {
 		return nil, err
 	}
-	r := bufio.NewReader(c)
-	w := bufio.NewWriter(c)
+	//	r := bufio.NewReader(c)
+	//	w := bufio.NewWriter(c)
 	cli := &Client{
 		conn:    c,
-		enc:     gob.NewEncoder(w),
-		dec:     gob.NewDecoder(r),
+		enc:     gob.NewEncoder(c),
+		dec:     gob.NewDecoder(c),
 		timeout: stdTimeout,
 		mouthDt: make(chan []interface{}),
 		acu:     &acumulator{dt: make([]*Input, 64)},
@@ -45,8 +46,10 @@ type Client struct {
 func (c *Client) Send(dt interface{}) error {
 	return c.enc.Encode(&dt)
 }
-func (c *Client) Recv(dt interface{}) error {
-	return c.dec.Decode(&dt)
+func (c *Client) Recv() (interface{}, error) {
+	var dt interface{}
+	err := c.dec.Decode(&dt)
+	return dt, err
 }
 
 func (c *Client) RecvAll() []interface{} {

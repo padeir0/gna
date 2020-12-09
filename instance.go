@@ -1,6 +1,7 @@
 package mgs
 
 import (
+	"fmt"
 	"time"
 )
 
@@ -10,7 +11,7 @@ func NewInstance(sr Server) *Instance {
 		disp:    &dispatcher{p: make(map[uint64]*Player, 16)},
 		timeout: stdTimeout,
 		done:    make(chan struct{}),
-		ticker:  time.NewTicker(time.Second * time.Duration(1/stdTPS)),
+		ticker:  time.NewTicker(time.Second / time.Duration(stdTPS)),
 		acu:     &acumulator{dt: make([]*Input, 64)},
 	}
 }
@@ -27,6 +28,7 @@ type Instance struct { // TODO should Instance have an ID?
 }
 
 func (ins *Instance) Start() {
+	fmt.Println("instance starting")
 	if ins.started {
 		return
 	}
@@ -43,8 +45,8 @@ func (ins *Instance) Start() {
 }
 
 func (ins *Instance) terminate() {
+	fmt.Println("instance terminating")
 	ins.disp.killAll()
-	ins.ticker.Stop()
 	ins.done <- struct{}{}
 }
 

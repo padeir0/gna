@@ -23,7 +23,6 @@ func SetStdTPS(tps int) {
 }
 
 func RunServer(addr string, ins *Instance) error {
-	ins.Start()
 	l := listener{
 		mainIns: ins,
 	}
@@ -52,7 +51,9 @@ func (sr *listener) start(addr string) error {
 	chConns := make(chan *net.TCPConn)
 
 	go connRecv(listener, chConns)
+	go sr.mainIns.Start()
 
+	fmt.Println("listening on: ", addr)
 	return sr.listen(chConns)
 }
 
@@ -68,7 +69,7 @@ func (sr *listener) listen(conns chan *net.TCPConn) error {
 				if p.ins == nil {
 					p.SetInstance(sr.mainIns)
 				}
-				go p.start()
+				p.start()
 			}
 		case <-sig:
 			fmt.Println("Stopping server...")
