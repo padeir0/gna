@@ -3,7 +3,7 @@ package main
 import (
 	"flag"
 	"fmt"
-	"github.com/kazhmir/mgs"
+	"github.com/kazhmir/gna"
 	"io"
 	"sync"
 	"time"
@@ -46,14 +46,14 @@ func main() {
 }
 
 type minion struct {
-	cli  *mgs.Client
+	cli  *gna.Client
 	buff []byte
 	i, n int
 }
 
 func (m *minion) start(data []string) {
 	var err error
-	m.cli, err = mgs.Dial(*host)
+	m.cli, err = gna.Dial(*host)
 	Error(err)
 	defer m.cli.Terminate()
 	var nOfPkts int
@@ -75,7 +75,7 @@ func (m *minion) start(data []string) {
 					return
 				}
 				Error(err)
-				s, ok := dt.(string)
+				s, ok := dt[0].(string)
 				if ok {
 					fmt.Printf("Recv: %s\n", s)
 				}

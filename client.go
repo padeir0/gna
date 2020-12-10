@@ -1,11 +1,8 @@
-package mgs
+package gna
 
 import (
-	//	"bufio"
 	"encoding/gob"
 	"errors"
-	//	"fmt"
-	"log"
 	"net"
 	"sync"
 	"syscall"
@@ -17,8 +14,6 @@ func Dial(addr string) (*Client, error) {
 	if err != nil {
 		return nil, err
 	}
-	//	r := bufio.NewReader(c)
-	//	w := bufio.NewWriter(c)
 	cli := &Client{
 		conn:    c,
 		enc:     gob.NewEncoder(c),
@@ -36,29 +31,39 @@ type Client struct {
 	dec     *gob.Decoder
 	timeout time.Duration
 	mouthDt chan []interface{}
+	err     error
 
-	acu *acumulator
+	acu     *acumulator
+	started bool
 
 	dead bool
 	mu   sync.Mutex
 }
 
-func (c *Client) Send(dt interface{}) error {
-	return c.enc.Encode(&dt)
-}
-func (c *Client) Recv() (interface{}, error) {
-	var dt interface{}
-	err := c.dec.Decode(&dt)
-	return dt, err
+func (c *Client) Send(dt ...interface{}) error {
+	if c.started {
+		c.mouthDt <- dt
+		return nil
+	}
+	var err error
+	for i := 0; i < len(dt) && err == nil; i++ {
+		err = c.enc.Encode(&dt[i])
+	}
+	return err
 }
 
-func (c *Client) RecvAll() []interface{} {
-	dt := c.acu.consume()
-	out := make([]interface{}, len(dt))
-	for i := range dt {
-		out[i] = dt[i].Data
+func (c *Client) Recv() ([]interface{}, error) {
+	if c.started {
+		dt := c.acu.consume()
+		out := make([]interface{}, len(dt))
+		for i := range dt {
+			out[i] = dt[i].Data
+		}
+		return out, nil
 	}
-	return out
+	var dt interface{}
+	err := c.dec.Decode(&dt)
+	return []interface{}{dt}, err
 }
 
 /*Terminate terminates the Client
@@ -70,6 +75,11 @@ func (c *Client) Terminate() {
 		c.dead = true
 		close(c.mouthDt)
 	}
+}
+
+/*returns the last error that happened in the client goroutines*/
+func (c *Client) Error() error {
+	return c.err
 }
 
 func (c *Client) Start() {
@@ -89,12 +99,11 @@ func (c *Client) mouth() {
 		dt = <-c.mouthDt
 		for i := range dt {
 			err := c.enc.Encode(dt[i])
-			if errors.Is(err, syscall.EPIPE) { // ?
-				log.Println("Cancelling cackets.", err)
-				return
-			}
-			if err != nil {
-				log.Println(err)
+			if err != nil { // TODO: error handling
+				c.err = err
+				if errors.Is(err, syscall.EPIPE) {
+					return
+				}
 				break
 			}
 
@@ -106,15 +115,15 @@ func (c *Client) ear() {
 	for {
 		err := c.conn.SetReadDeadline(time.Now().Add(c.timeout))
 		if err != nil {
-			log.Println(err)
+			c.err = err
 		}
 		var dt interface{}
 		err = c.dec.Decode(&dt)
 		if err != nil {
-			log.Println(err)
-			/*if opErr, ok := err.(*net.OpError); ok && opErr.Timeout() {
+			c.err = err
+			if opErr, ok := err.(*net.OpError); ok && opErr.Timeout() {
 				return
-			}*/
+			}
 			return
 		}
 		if dt != nil { // ?

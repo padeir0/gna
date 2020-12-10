@@ -2,12 +2,12 @@ package main
 
 /*
 import (
-	"github.com/kazhmir/mgs"
-	"github.com/kazhmir/mgs/examples/blobs/shared"
+	"github.com/kazhmir/gna"
+	"github.com/kazhmir/gna/examples/blobs/shared"
 	"log"
 )
-func Connect(addr, pwd string) (*mgs.Client, *shared.Blob) {
-	client, err := mgs.Dial(addr)
+func Connect(addr, pwd string) (*gna.Client, *shared.Blob) {
+	client, err := gna.Dial(addr)
 	if err != nil {
 		log.Fatal(err)
 	}

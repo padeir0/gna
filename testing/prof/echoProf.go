@@ -3,7 +3,7 @@ package main
 import (
 	"flag"
 	"fmt"
-	"github.com/kazhmir/mgs"
+	"github.com/kazhmir/gna"
 	"log"
 	"os"
 	"runtime/pprof"
@@ -23,8 +23,8 @@ func main() {
 	}
 
 	server := &EchoServer{}
-	ins := mgs.NewInstance(server)
-	if err := mgs.RunServer("localhost:8888", ins); err != nil {
+	ins := gna.NewInstance(server)
+	if err := gna.RunServer("localhost:8888", ins); err != nil {
 		log.Fatal(err)
 	}
 }
@@ -32,17 +32,17 @@ func main() {
 type EchoServer struct {
 }
 
-func (es *EchoServer) Update(ins *mgs.Instance) {
+func (es *EchoServer) Update(ins *gna.Instance) {
 	dt := ins.GetData()
 	for i := range dt {
 		ins.Unicast(dt[i].P, dt[i].Data)
 	}
 }
 
-func (es *EchoServer) Auth(p *mgs.Player) {
+func (es *EchoServer) Auth(p *gna.Player) {
 	fmt.Println("Connected: ", p.ID)
 }
 
-func (es *EchoServer) Disconn(p *mgs.Player) {
+func (es *EchoServer) Disconn(p *gna.Player) {
 	fmt.Println("Disconnected: ", p.ID)
 }

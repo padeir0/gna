@@ -1,4 +1,4 @@
-package mgs
+package gna
 
 import (
 	"fmt"
@@ -11,7 +11,7 @@ import (
 
 var (
 	stdTimeout = 5 * time.Second
-	stdTPS     = 20 // 20 times per second
+	stdTPS     = 20 // ticks per second
 )
 
 func SetStdTimeout(d time.Duration) {
@@ -83,7 +83,7 @@ func connRecv(l *net.TCPListener, out chan *net.TCPConn) {
 	for {
 		conn, err := l.AcceptTCP()
 		if err != nil {
-			log.Print(err)
+			log.Print(err) //TODO remove logging
 			if _, ok := err.(*net.OpError); ok {
 				return
 			}

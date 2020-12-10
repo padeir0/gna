@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"github.com/hajimehoshi/ebiten"
 	"github.com/hajimehoshi/ebiten/ebitenutil"
-	//"github.com/kazhmir/mgs"
-	"github.com/kazhmir/mgs/examples/blobs/shared"
+	//"github.com/kazhmir/gna"
+	"github.com/kazhmir/gna/examples/blobs/shared"
 	"math"
 	"sync"
 )
@@ -14,7 +14,7 @@ type Game struct {
 	playerID uint64
 	blobs    map[uint64]*Blob
 	mu       sync.Mutex
-	// conn *mgs.Client
+	// conn *gna.Client
 }
 
 func (g *Game) Update() error {

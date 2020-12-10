@@ -1,9 +1,8 @@
-package mgs
+package gna
 
 import (
 	"encoding/gob"
 	"errors"
-	"log"
 	"net"
 	"sync"
 	"syscall"
@@ -20,14 +19,16 @@ func newPlayer(id uint64, c net.Conn) *Player {
 	}
 }
 
-/*Player abstracts the protocol and network logic.
- */
+/*Player runs above a persistent TCP connection with gob encoding,
+it abstracts the protocol and network logic.
+*/
 type Player struct {
 	/*Talker ID*/
 	ID   uint64
 	conn net.Conn
 	enc  *gob.Encoder
 	dec  *gob.Decoder
+	err  error
 
 	ins *Instance
 
@@ -40,6 +41,8 @@ type Player struct {
 	mu   sync.Mutex
 }
 
+/*Removes the player from the previous instance, if any,
+and sends him to another.*/
 func (p *Player) SetInstance(ins *Instance) {
 	if p.ins != nil {
 		p.ins.disp.rmPlayer(p.ID)
@@ -58,7 +61,11 @@ func (p *Player) Recv() (interface{}, error) {
 	return dt, err
 }
 
-/*Rectify returns true if the talker exists in the map*/
+func (p *Player) Error() error {
+	return p.err
+}
+
+/*Rectify returns true if the player exists in the map*/
 func (p *Player) rectify(mp *map[uint64]*Player) bool {
 	if _, ok := (*mp)[p.ID]; !ok {
 		return false
@@ -66,12 +73,12 @@ func (p *Player) rectify(mp *map[uint64]*Player) bool {
 	return true
 }
 
-/*send sends the signal channel and data to the mouth of the talker*/
+/*send sends the signal channel and data to the mouth of the player*/
 func (p *Player) send(dt []interface{}) {
 	p.mouthDt <- dt
 }
 
-/*Terminate terminates the talker, executing Disconnect,
+/*Terminate terminates the player, executing Disconnect,
 closing the connection and the channels.*/
 func (p *Player) Terminate() {
 	p.mu.Lock()
@@ -90,7 +97,7 @@ func (p *Player) Terminate() {
 	}
 }
 
-/*Start starts the talker, creating 2 new goroutines.
+/*Start starts the player, creating 2 new goroutines.
 The ear goroutine listens for packets and sents these packets through the ins.Out channel.
 The mouth goroutine waits for responses from the dispatcher and writes them to the connection.
 */
@@ -107,12 +114,11 @@ func (p *Player) mouth() {
 		dt = <-p.mouthDt
 		for i := range dt {
 			err := p.Send(dt[i])
-			if errors.Is(err, syscall.EPIPE) { // ?
-				log.Println("Cancelling packets to: ", p.ID, ".", err)
-				return
-			}
 			if err != nil {
-				log.Println(err)
+				p.err = err
+				if errors.Is(err, syscall.EPIPE) { // should return without logging
+					return
+				}
 				break
 			}
 
@@ -125,11 +131,11 @@ func (p *Player) ear() {
 	for {
 		err := p.conn.SetReadDeadline(time.Now().Add(p.ins.timeout))
 		if err != nil {
-			log.Println(err)
+			p.err = err
 		}
 		dt, err := p.Recv()
 		if err != nil {
-			log.Println(err)
+			p.err = err
 			/*if opErr, ok := err.(*net.OpError); ok && opErr.Timeout() {
 				return
 			}*/
@@ -141,29 +147,29 @@ func (p *Player) ear() {
 	}
 }
 
-/*Group is a collection of talkers that is safe for concurrent use,
-This can be used to "multicast" a single piece o data to a set of talkers.
+/*Group is a collection of players that is safe for concurrent use,
+This can be used to "multicast" a single piece o data to a set of players.
 */
 type Group struct {
 	tMap map[uint64]*Player
 	mu   sync.Mutex
 }
 
-/*Add a talker to the Group*/
+/*Add a player to the Group*/
 func (g *Group) Add(t *Player) {
 	g.mu.Lock()
 	g.tMap[t.ID] = t
 	g.mu.Unlock()
 }
 
-/*Rm removes a talker from the Group*/
+/*Rm removes a player from the Group*/
 func (g *Group) Rm(id uint64) {
 	g.mu.Lock()
 	delete(g.tMap, id)
 	g.mu.Unlock()
 }
 
-/*Rectify removes talkers from the Group that are not in the given map*/
+/*Rectify removes players from the Group that are not in the given map*/
 func (g *Group) rectify(mp *map[uint64]*Player) bool {
 	for id := range *mp {
 		if _, ok := g.tMap[id]; !ok {
@@ -183,6 +189,7 @@ func (g *Group) send(data []interface{}) {
 	}
 }
 
+/*Returns the number of players in the group*/
 func (g *Group) Len() int {
 	g.mu.Lock()
 	out := len(g.tMap)

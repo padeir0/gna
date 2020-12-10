@@ -1,4 +1,4 @@
-package mgs
+package gna
 
 import (
 	"fmt"
@@ -19,9 +19,9 @@ func (x *id) newID() uint64 {
 	return out
 }
 
-/*Sender permits the dispatching of responses through the Dispatcher.
+/*sender permits the dispatching of responses through the Dispatcher.
 It is implemented to reduce the time waiting for Syscalls to a minimum.*/
-type Sender interface {
+type sender interface {
 	/*send sends data to the destination.
 	The send method should not halt, its only job is to send
 	the data to a different goroutine.*/
@@ -35,7 +35,7 @@ type Sender interface {
 }
 
 /*Input is a simple struct that contains
-the data sent from the talker and a pointer to the talker.
+the data sent from the Player and a pointer to the Player.
 */
 type Input struct {
 	P    *Player
@@ -75,7 +75,7 @@ func (is *acumulator) consume() []*Input {
 
 type dispatcher struct {
 	p  map[uint64]*Player
-	d  map[Sender][]interface{}
+	d  map[sender][]interface{}
 	mu sync.Mutex
 }
 
@@ -105,7 +105,7 @@ func (dp *dispatcher) dispatch() {
 			s.send(dt)
 		}
 	}
-	dp.d = make(map[Sender][]interface{}, 64)
+	dp.d = make(map[sender][]interface{}, 64)
 }
 
 func (dp *dispatcher) currPlayers() *Group {
@@ -114,7 +114,7 @@ func (dp *dispatcher) currPlayers() *Group {
 	}
 }
 
-func (dp *dispatcher) addDisp(s Sender, dt []interface{}) {
+func (dp *dispatcher) addDisp(s sender, dt []interface{}) {
 	dp.mu.Lock()
 	if old, ok := dp.d[s]; ok {
 		dt = append(old, dt...)
