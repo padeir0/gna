@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"github.com/hajimehoshi/ebiten"
 	"github.com/hajimehoshi/ebiten/ebitenutil"
-	//"github.com/kazhmir/gna"
+	"github.com/kazhmir/gna"
 	"github.com/kazhmir/gna/examples/blobs/shared"
 	"math"
 	"sync"
@@ -14,11 +14,11 @@ type Game struct {
 	playerID uint64
 	blobs    map[uint64]*Blob
 	mu       sync.Mutex
-	// conn *gna.Client
+	conn     *gna.Client
 }
 
 func (g *Game) Update() error {
-	// g.ServerUpdate()
+	g.ServerUpdate()
 	if ebiten.IsKeyPressed(ebiten.KeyS) {
 		g.Player().Move(true)
 	}
@@ -60,7 +60,6 @@ func (g *Game) Player() *Blob {
 	return g.blobs[g.playerID]
 }
 
-/*
 func (g *Game) ServerUpdate() error {
 	g.mu.Lock()
 	defer g.mu.Unlock()
@@ -74,8 +73,8 @@ func (g *Game) ServerUpdate() error {
 				g.RmBlob(v.ID)
 			case shared.EBorn:
 				b := &Blob{
-					d: D,
-					img: ball,
+					d:    D,
+					img:  ball,
 					blob: {ID: v.ID},
 				}
 				g.AddBlob()
@@ -83,7 +82,6 @@ func (g *Game) ServerUpdate() error {
 		}
 	}
 }
-*/
 
 type Blob struct {
 	d   float64

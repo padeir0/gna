@@ -90,7 +90,7 @@ func (p *Player) Terminate() {
 	}
 	if !p.dead {
 		p.dead = true
-		p.ins.handler.Disconn(p)
+		p.ins.handler.Disconn(p.ins, p)
 		p.conn.Close()
 		p.ins.disp.rmPlayer(p.ID)
 		close(p.mouthDt)

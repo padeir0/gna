@@ -1,25 +1,27 @@
 package main
 
-/*
 import (
 	"github.com/kazhmir/gna"
 	"github.com/kazhmir/gna/examples/blobs/shared"
 	"log"
 )
+
 func Connect(addr, pwd string) (*gna.Client, *shared.Blob) {
 	client, err := gna.Dial(addr)
 	if err != nil {
 		log.Fatal(err)
 	}
-	err := client.Send(&shared.Auth{pwd})
+	err = client.Send(shared.Auth{pwd})
 	if err != nil {
 		log.Fatal(err)
 	}
-	var p shared.Point
-	err := client.Recv(&p)
+	dt, err := client.Recv()
 	if err != nil {
 		log.Fatal(err)
 	}
-	return client, &p
+	v, ok := dt[0].(shared.Blob)
+	if ok {
+		return client, &v
+	}
+	panic("data was not shared.Blob")
 }
-*/

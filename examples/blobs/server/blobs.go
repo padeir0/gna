@@ -17,24 +17,11 @@ func main() {
 		sync.Mutex{},
 	}
 	gna.SetStdTimeout(5 * time.Second)
-	gna.SetStdTPS(20) // 20 ticks per second. It's the rate at which you process user data.
+	gna.SetStdTPS(20)
 	ins := gna.NewInstance(&server)
 	if err := gna.RunServer("0.0.0.0:8888", ins); err != nil {
-		log.Fatal(err) // if the user uses SIGTERM, the server tries to stop without errors.
+		log.Fatal(err)
 	}
-	/*
-	   to create new instances:
-
-	   ins := gna.NewInstance(Server)
-	   Player.SetInstance(ins)
-
-	   if done in the Auth method it can serve as load balancing, if the Auth doesn't set the instance
-	   the default is the main instance of the server.
-
-	   instances can be set inside Server.Update too
-
-	   If the given instance is not running, the package will return an error or panic?
-	*/
 }
 
 type Server struct {
@@ -44,23 +31,11 @@ type Server struct {
 	mu    sync.Mutex
 }
 
-/* The following functions do not send messages through channels,
-instead they only append the data into a buffer with the necessary
-information to dispatch it to the receivers
-
-disp.Broadcast(out...) // Mark data to Send to all talkers
-disp.Multicast(gna.Group, out...) // Mark data to Send to a group of talkers
-disp.Unicast(gna.Conn, out...) // Mark data to Send to a single talker
-
-the disp.Dispatch() then sends the messages through channels,
-and signals for the work to start, similar to older implementation
-*/
 func (sr *Server) Update(ins *gna.Instance) {
 	sr.mu.Lock()
 	defer sr.mu.Unlock()
-	ins.Broadcast(sr.Events()...) // the client will receive this as a bunch of *shared.Events
+	ins.Broadcast(sr.Events()...)
 	data := ins.GetData()
-	var n int
 	for _, input := range data {
 		v, _ := input.Data.(string)
 		b := sr.blobs[input.P.ID]
@@ -77,19 +52,14 @@ func (sr *Server) Update(ins *gna.Instance) {
 			}
 		}
 		ins.Broadcast(b)
-		n++
 	}
 }
 
-/*It may not be safe to send messages to the conn at this time
-since it may terminate due to client disconnection or crash.
-Make the Dispatcher handle this instead of each talker goroutine?
-*/
-func (sr *Server) Disconn(p *gna.Player) {
+func (sr *Server) Disconn(ins *gna.Instance, p *gna.Player) {
 	sr.RmBlob(p.ID)
 }
 
-func (sr *Server) Auth(p *gna.Player) {
+func (sr *Server) Auth(ins *gna.Instance, p *gna.Player) {
 	a, err := p.Recv()
 	if err != nil {
 		log.Println(err)

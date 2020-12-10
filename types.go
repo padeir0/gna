@@ -100,6 +100,9 @@ func (dp *dispatcher) killAll() { // this will probable go bad
 func (dp *dispatcher) dispatch() {
 	dp.mu.Lock()
 	defer dp.mu.Unlock()
+	if len(dp.d) == 0 {
+		return
+	}
 	for s, dt := range dp.d {
 		if s.rectify(&dp.p) {
 			s.send(dt)

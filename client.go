@@ -73,16 +73,19 @@ func (c *Client) Terminate() {
 	defer c.mu.Unlock()
 	if !c.dead {
 		c.dead = true
-		close(c.mouthDt)
+		c.conn.Close()
 	}
 }
 
 /*returns the last error that happened in the client goroutines*/
 func (c *Client) Error() error {
-	return c.err
+	out := c.err
+	c.err = nil
+	return out
 }
 
 func (c *Client) Start() {
+	c.started = true
 	go func() {
 		defer c.Terminate()
 		c.mouth()
@@ -93,12 +96,16 @@ func (c *Client) Start() {
 	}()
 }
 
+func (c *Client) SetTimeout(t time.Duration) {
+	c.timeout = t // racy
+}
+
 func (c *Client) mouth() {
 	dt := []interface{}{}
 	for {
 		dt = <-c.mouthDt
 		for i := range dt {
-			err := c.enc.Encode(dt[i])
+			err := c.enc.Encode(&dt[i])
 			if err != nil { // TODO: error handling
 				c.err = err
 				if errors.Is(err, syscall.EPIPE) {
@@ -126,7 +133,7 @@ func (c *Client) ear() {
 			}
 			return
 		}
-		if dt != nil { // ?
+		if dt != nil {
 			c.acu.add(&Input{nil, dt})
 		}
 	}

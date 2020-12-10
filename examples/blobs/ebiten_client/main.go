@@ -2,12 +2,12 @@ package main
 
 import (
 	"flag"
-	//"fmt"
+	"fmt"
 	"github.com/hajimehoshi/ebiten"
 	"image"
 	_ "image/png"
 	"os"
-	//"time"
+	"time"
 )
 
 const (
@@ -29,10 +29,10 @@ func main() {
 	game := &Game{blobs: make(map[uint64]*Blob, 16)}
 	flag.Parse()
 
-	// client, player := Connect(*serverAddr, *pwd)
-	// game.conn = client
-	// game.playerID = player.ID
-	// game.blobs[player.ID] = player
+	client, player := Connect(*serverAddr, *pwd)
+	game.conn = client
+	game.playerID = player.ID
+	game.blobs[player.ID] = player
 	game.playerID = 0
 	game.blobs[0] = &Blob{d: d, img: ball}
 	D = d

@@ -39,10 +39,10 @@ func (es *EchoServer) Update(ins *gna.Instance) {
 	}
 }
 
-func (es *EchoServer) Auth(p *gna.Player) {
+func (es *EchoServer) Auth(ins *gna.Instance, p *gna.Player) {
 	fmt.Println("Connected: ", p.ID)
 }
 
-func (es *EchoServer) Disconn(p *gna.Player) {
+func (es *EchoServer) Disconn(ins *gna.Instance, p *gna.Player) {
 	fmt.Println("Disconnected: ", p.ID)
 }
