@@ -29,12 +29,6 @@ func RunServer(addr string, ins *Instance) error {
 	return l.start(addr)
 }
 
-type Server interface {
-	Update(*Instance)
-	Disconn(*Instance, *Player)
-	Auth(*Instance, *Player)
-}
-
 type listener struct {
 	mainIns *Instance
 	idGen   id
@@ -64,7 +58,7 @@ func (sr *listener) listen(conns chan *net.TCPConn) error {
 		select {
 		case conn := <-conns:
 			p := newPlayer(sr.idGen.newID(), conn)
-			sr.mainIns.handler.Auth(sr.mainIns, p)
+			sr.mainIns.world.Auth(sr.mainIns, p)
 			if !p.dead {
 				if p.ins == nil {
 					p.SetInstance(sr.mainIns)

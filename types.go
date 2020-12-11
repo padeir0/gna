@@ -19,19 +19,13 @@ func (x *id) newID() uint64 {
 	return out
 }
 
-/*sender permits the dispatching of responses through the Dispatcher.
-It is implemented to reduce the time waiting for Syscalls to a minimum.*/
+/*sender permits the dispatching of responses through the dispatcher.
+It should not wait for any syscalls.*/
 type sender interface {
 	/*send sends data to the destination.
 	The send method should not halt, its only job is to send
 	the data to a different goroutine.*/
 	send(data []interface{})
-	/*rectify receives a pointer to a map with the current available talkers and
-	returns if the dispatcher should proceed to the Send method. If
-	a implementation is independent of talkers, it should just ignore the
-	received pointer and return true. It is not safe to write to the map, only to read.
-	*/
-	rectify(currPlayers *map[uint64]*Player) (send bool)
 }
 
 /*Input is a simple struct that contains
@@ -74,27 +68,8 @@ func (is *acumulator) consume() []*Input {
 }
 
 type dispatcher struct {
-	p  map[uint64]*Player
 	d  map[sender][]interface{}
 	mu sync.Mutex
-}
-
-func (dp *dispatcher) addPlayer(p *Player) {
-	dp.mu.Lock()
-	dp.p[p.ID] = p
-	dp.mu.Unlock()
-}
-
-func (dp *dispatcher) rmPlayer(id uint64) {
-	dp.mu.Lock()
-	defer dp.mu.Unlock()
-	delete(dp.p, id)
-}
-
-func (dp *dispatcher) killAll() { // this will probable go bad
-	for _, p := range dp.p {
-		p.Terminate()
-	}
 }
 
 func (dp *dispatcher) dispatch() {
@@ -104,17 +79,9 @@ func (dp *dispatcher) dispatch() {
 		return
 	}
 	for s, dt := range dp.d {
-		if s.rectify(&dp.p) {
-			s.send(dt)
-		}
+		s.send(dt)
 	}
 	dp.d = make(map[sender][]interface{}, 64)
-}
-
-func (dp *dispatcher) currPlayers() *Group {
-	return &Group{
-		tMap: dp.p, // in this case it doesn't matter if it's by reference or value
-	}
 }
 
 func (dp *dispatcher) addDisp(s sender, dt []interface{}) {

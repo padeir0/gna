@@ -97,11 +97,11 @@ func ClientLoop() {
 func Connect(addr, name string) *gna.Client {
 	cli, err := gna.Dial(addr)
 	if err != nil {
-		panic(err)
+		log.Fatal(err)
 	}
 	err = cli.Send(cliAuth{name})
 	if err != nil {
-		panic(err)
+		log.Fatal(err)
 	}
 	dts, err := cli.Recv()
 	if v, ok := dts[0].(srAuth); ok {

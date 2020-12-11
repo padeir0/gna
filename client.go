@@ -3,6 +3,7 @@ package gna
 import (
 	"encoding/gob"
 	"errors"
+	"fmt"
 	"net"
 	"sync"
 	"syscall"
@@ -31,7 +32,8 @@ type Client struct {
 	dec     *gob.Decoder
 	timeout time.Duration
 	mouthDt chan []interface{}
-	err     error
+	wErr    error
+	rErr    error
 
 	acu     *acumulator
 	started bool
@@ -48,6 +50,9 @@ func (c *Client) Send(dt ...interface{}) error {
 	var err error
 	for i := 0; i < len(dt) && err == nil; i++ {
 		err = c.enc.Encode(&dt[i])
+		if err != nil {
+			err = fmt.Errorf("%w while encoding: %v", err, dt[i])
+		}
 	}
 	return err
 }
@@ -79,9 +84,16 @@ func (c *Client) Terminate() {
 
 /*returns the last error that happened in the client goroutines*/
 func (c *Client) Error() error {
-	out := c.err
-	c.err = nil
-	return out
+	if c.wErr != nil {
+		if c.rErr != nil {
+			return fmt.Errorf("%w, along with: %v", c.wErr, c.rErr)
+		}
+		return c.wErr
+	}
+	if c.rErr != nil {
+		return c.rErr
+	}
+	return nil
 }
 
 func (c *Client) Start() {
@@ -106,8 +118,8 @@ func (c *Client) mouth() {
 		dt = <-c.mouthDt
 		for i := range dt {
 			err := c.enc.Encode(&dt[i])
-			if err != nil { // TODO: error handling
-				c.err = err
+			if err != nil {
+				c.wErr = fmt.Errorf("%w while encoding %v", err, dt[i])
 				if errors.Is(err, syscall.EPIPE) {
 					return
 				}
@@ -122,12 +134,12 @@ func (c *Client) ear() {
 	for {
 		err := c.conn.SetReadDeadline(time.Now().Add(c.timeout))
 		if err != nil {
-			c.err = err
+			c.rErr = fmt.Errorf("failed to set deadline: %w", err)
 		}
 		var dt interface{}
 		err = c.dec.Decode(&dt)
 		if err != nil {
-			c.err = err
+			c.rErr = fmt.Errorf("recv: %w", err)
 			if opErr, ok := err.(*net.OpError); ok && opErr.Timeout() {
 				return
 			}

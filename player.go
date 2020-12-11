@@ -3,6 +3,7 @@ package gna
 import (
 	"encoding/gob"
 	"errors"
+	"fmt"
 	"net"
 	"sync"
 	"syscall"
@@ -28,7 +29,8 @@ type Player struct {
 	conn net.Conn
 	enc  *gob.Encoder
 	dec  *gob.Decoder
-	err  error
+	wErr error
+	rErr error
 
 	ins *Instance
 
@@ -45,10 +47,10 @@ type Player struct {
 and sends him to another.*/
 func (p *Player) SetInstance(ins *Instance) {
 	if p.ins != nil {
-		p.ins.disp.rmPlayer(p.ID)
+		p.ins.players.Rm(p.ID)
 	}
 	p.ins = ins
-	p.ins.disp.addPlayer(p)
+	p.ins.players.Add(p)
 }
 
 func (p *Player) Send(dt interface{}) error {
@@ -62,20 +64,25 @@ func (p *Player) Recv() (interface{}, error) {
 }
 
 func (p *Player) Error() error {
-	return p.err
-}
-
-/*Rectify returns true if the player exists in the map*/
-func (p *Player) rectify(mp *map[uint64]*Player) bool {
-	if _, ok := (*mp)[p.ID]; !ok {
-		return false
+	if p.wErr != nil {
+		if p.rErr != nil {
+			return fmt.Errorf("%w, along with: %v", p.wErr, p.rErr)
+		}
+		return p.wErr
 	}
-	return true
+	if p.rErr != nil {
+		return p.rErr
+	}
+	return nil
 }
 
-/*send sends the signal channel and data to the mouth of the player*/
+/*send sends the data to the mouth of the player*/
 func (p *Player) send(dt []interface{}) {
-	p.mouthDt <- dt
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if !p.dead {
+		p.mouthDt <- dt
+	}
 }
 
 /*Terminate terminates the player, executing Disconnect,
@@ -90,9 +97,9 @@ func (p *Player) Terminate() {
 	}
 	if !p.dead {
 		p.dead = true
-		p.ins.handler.Disconn(p.ins, p)
+		p.ins.world.Disconn(p.ins, p)
 		p.conn.Close()
-		p.ins.disp.rmPlayer(p.ID)
+		p.ins.players.Rm(p.ID)
 		close(p.mouthDt)
 	}
 }
@@ -112,10 +119,13 @@ func (p *Player) mouth() {
 	defer p.Terminate()
 	for {
 		dt = <-p.mouthDt
+		if dt == nil {
+			return
+		}
 		for i := range dt {
 			err := p.Send(dt[i])
 			if err != nil {
-				p.err = err
+				p.wErr = fmt.Errorf("%w while encoding: %v", err, dt[i])
 				if errors.Is(err, syscall.EPIPE) { // should return without logging
 					return
 				}
@@ -131,11 +141,11 @@ func (p *Player) ear() {
 	for {
 		err := p.conn.SetReadDeadline(time.Now().Add(p.ins.timeout))
 		if err != nil {
-			p.err = err
+			p.rErr = fmt.Errorf("failed to set deadline: %w", err)
 		}
 		dt, err := p.Recv()
 		if err != nil {
-			p.err = err
+			p.rErr = fmt.Errorf("recv: %w", err)
 			/*if opErr, ok := err.(*net.OpError); ok && opErr.Timeout() {
 				return
 			}*/
@@ -147,52 +157,60 @@ func (p *Player) ear() {
 	}
 }
 
+func NewGroup(ps ...*Player) *Group {
+	pMap := make(map[uint64]*Player, len(ps))
+	for i := range ps {
+		pMap[ps[i].ID] = ps[i]
+	}
+	return &Group{pMap: pMap}
+}
+
 /*Group is a collection of players that is safe for concurrent use,
 This can be used to "multicast" a single piece o data to a set of players.
 */
 type Group struct {
-	tMap map[uint64]*Player
+	pMap map[uint64]*Player
 	mu   sync.Mutex
+}
+
+func (g *Group) Terminate() {
+	g.mu.Lock()
+	for _, p := range g.pMap {
+		p.mu.Lock()
+		p.dead = true
+		p.conn.Close()
+		close(p.mouthDt)
+		p.mu.Unlock()
+	}
+	g.pMap = nil
+	g.mu.Unlock()
 }
 
 /*Add a player to the Group*/
 func (g *Group) Add(t *Player) {
 	g.mu.Lock()
-	g.tMap[t.ID] = t
+	g.pMap[t.ID] = t
 	g.mu.Unlock()
 }
 
 /*Rm removes a player from the Group*/
 func (g *Group) Rm(id uint64) {
 	g.mu.Lock()
-	delete(g.tMap, id)
+	delete(g.pMap, id)
 	g.mu.Unlock()
-}
-
-/*Rectify removes players from the Group that are not in the given map*/
-func (g *Group) rectify(mp *map[uint64]*Player) bool {
-	for id := range *mp {
-		if _, ok := g.tMap[id]; !ok {
-			g.Rm(id)
-		}
-	}
-	if len(g.tMap) == 0 {
-		return false
-	}
-	return true
 }
 
 /*Send sends the sig channel and data to each Talker in the group*/
 func (g *Group) send(data []interface{}) {
-	for _, t := range g.tMap {
-		t.mouthDt <- data
+	for _, p := range g.pMap {
+		p.send(data)
 	}
 }
 
 /*Returns the number of players in the group*/
 func (g *Group) Len() int {
 	g.mu.Lock()
-	out := len(g.tMap)
+	out := len(g.pMap)
 	g.mu.Unlock()
 	return out
 }

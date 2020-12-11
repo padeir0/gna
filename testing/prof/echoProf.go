@@ -44,5 +44,5 @@ func (es *EchoServer) Auth(ins *gna.Instance, p *gna.Player) {
 }
 
 func (es *EchoServer) Disconn(ins *gna.Instance, p *gna.Player) {
-	fmt.Println("Disconnected: ", p.ID)
+	fmt.Printf("Disconnected: %v, Reason: %v\n", p.ID, p.Error())
 }
