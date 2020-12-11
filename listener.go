@@ -1,6 +1,7 @@
 package gna
 
 import (
+	"encoding/gob"
 	"fmt"
 	"log"
 	"net"
@@ -20,6 +21,12 @@ func SetStdTimeout(d time.Duration) {
 
 func SetStdTPS(tps int) {
 	stdTPS = tps
+}
+
+func Register(dt ...interface{}) {
+	for i := range dt {
+		gob.Register(dt[i])
+	}
 }
 
 func RunServer(addr string, ins *Instance) error {

@@ -6,6 +6,7 @@ import (
 	"github.com/hajimehoshi/ebiten/ebitenutil"
 	"github.com/kazhmir/gna"
 	"github.com/kazhmir/gna/examples/blobs/shared"
+	"log"
 	"math"
 	"sync"
 )
@@ -19,17 +20,24 @@ type Game struct {
 
 func (g *Game) Update() error {
 	g.ServerUpdate()
+	input := ""
 	if ebiten.IsKeyPressed(ebiten.KeyS) {
-		g.Player().Move(true)
+		input += "s"
 	}
 	if ebiten.IsKeyPressed(ebiten.KeyW) {
-		g.Player().Move(false)
+		input += "w"
 	}
 	if ebiten.IsKeyPressed(ebiten.KeyD) {
-		g.Player().Rotate(true)
+		input += "d"
 	}
 	if ebiten.IsKeyPressed(ebiten.KeyA) {
-		g.Player().Rotate(false)
+		input += "a"
+	}
+	if ebiten.IsKeyPressed(ebiten.KeySpace) {
+		fmt.Println(g.blobs)
+	}
+	if input != "" {
+		g.conn.Send(input)
 	}
 	return nil
 }
@@ -56,17 +64,22 @@ func (g *Game) RmBlob(id uint64) {
 	g.mu.Unlock()
 }
 
-func (g *Game) Player() *Blob {
-	return g.blobs[g.playerID]
-}
-
-func (g *Game) ServerUpdate() error {
-	g.mu.Lock()
-	defer g.mu.Unlock()
-	for _, data := range g.conn.RecvAll() {
+func (g *Game) ServerUpdate() {
+	dt, _ := g.conn.Recv()
+	if len(dt) == 0 {
+		return
+	}
+	if err := g.conn.Error(); err != nil {
+		log.Fatal(err)
+	}
+	for _, data := range dt {
 		switch v := data.(type) {
 		case shared.Blob:
-			g.blobs[v.ID] = v
+			if _, ok := g.blobs[v.ID]; ok {
+				g.blobs[v.ID].Blob = v
+				continue
+			}
+			g.blobs[v.ID] = &Blob{d: D, img: ball, Blob: v}
 		case shared.Event:
 			switch v.T {
 			case shared.EDied:
@@ -75,9 +88,9 @@ func (g *Game) ServerUpdate() error {
 				b := &Blob{
 					d:    D,
 					img:  ball,
-					blob: {ID: v.ID},
+					Blob: shared.Blob{ID: v.ID},
 				}
-				g.AddBlob()
+				g.AddBlob(b)
 			}
 		}
 	}

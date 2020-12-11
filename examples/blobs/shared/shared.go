@@ -15,10 +15,6 @@ type Event struct {
 	T  byte
 }
 
-type Auth struct {
-	Pwd string
-}
-
 type Blob struct {
 	ID  uint64
 	P   Point

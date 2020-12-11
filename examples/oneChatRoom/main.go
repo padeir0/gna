@@ -2,7 +2,6 @@ package main
 
 import (
 	"bufio"
-	"encoding/gob"
 	"flag"
 	"fmt"
 	"github.com/kazhmir/gna"
@@ -27,9 +26,7 @@ var (
 
 func main() {
 	flag.Parse()
-	gob.Register(srAuth{})
-	gob.Register(cliAuth{})
-	gob.Register(Message{})
+	gna.Register(srAuth{}, cliAuth{}, Message{})
 	if *addr == "" && *server == "" {
 		fmt.Println("You need to either host or connect. Use '-serve <addr>' to host or '-conn <addr>' to connect.")
 		return

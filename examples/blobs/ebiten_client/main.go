@@ -2,10 +2,12 @@ package main
 
 import (
 	"flag"
-	"fmt"
 	"github.com/hajimehoshi/ebiten"
+	"github.com/kazhmir/gna"
+	"github.com/kazhmir/gna/examples/blobs/shared"
 	"image"
 	_ "image/png"
+	"log"
 	"os"
 	"time"
 )
@@ -19,10 +21,13 @@ var (
 	D          = float64(0)
 	serverAddr = flag.String("host", "localhost:8888", "Host address <ip>:<port>")
 	pwd        = flag.String("pwd", "password", "Host Password")
+	ball       *ebiten.Image
 )
 
 func main() {
-	ball, d := getImage("ball.png")
+	gna.Register(shared.Blob{}, shared.Point{}, shared.Event{})
+	var d float64
+	ball, d = getImage("ball.png")
 	ebiten.SetWindowSize(scrWid, scrHei)
 	ebiten.SetWindowTitle("Blobs")
 	ebiten.SetMaxTPS(30)
@@ -32,9 +37,7 @@ func main() {
 	client, player := Connect(*serverAddr, *pwd)
 	game.conn = client
 	game.playerID = player.ID
-	game.blobs[player.ID] = player
-	game.playerID = 0
-	game.blobs[0] = &Blob{d: d, img: ball}
+	game.blobs[player.ID] = &Blob{d: d, img: ball}
 	D = d
 
 	if err := ebiten.RunGame(game); err != nil {
@@ -55,4 +58,27 @@ func getImage(file string) (EImg *ebiten.Image, diameter float64) {
 	EImg = ebiten.NewImageFromImage(img)
 	w, _ := EImg.Size() // image is a square
 	return EImg, float64(w)
+}
+
+func Connect(addr, pwd string) (*gna.Client, *shared.Blob) {
+	client, err := gna.Dial(addr)
+	if err != nil {
+		log.Fatal(err)
+	}
+	err = client.Send(pwd)
+	if err != nil {
+		log.Fatal(err)
+	}
+	dt, err := client.Recv()
+	if err != nil {
+		log.Fatal(err)
+	}
+	client.SetTimeout(60 * time.Second)
+	client.Start()
+	v, ok := dt[0].(shared.Blob)
+	if ok {
+		return client, &v
+	}
+	log.Fatalf("data was not blob: %v", dt[0])
+	return nil, nil
 }
