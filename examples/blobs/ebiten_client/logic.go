@@ -34,7 +34,7 @@ func (g *Game) Update() error {
 		input += "a"
 	}
 	if ebiten.IsKeyPressed(ebiten.KeySpace) {
-		fmt.Println(g.blobs)
+		fmt.Println(len(g.blobs))
 	}
 	if input != "" {
 		g.conn.Send(input)

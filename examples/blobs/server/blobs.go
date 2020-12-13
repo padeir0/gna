@@ -32,8 +32,9 @@ func main() {
 	server := Server{
 		blobs: make(map[uint64]*shared.Blob, 64),
 	}
-	gna.SetStdTimeout(60 * time.Second)
-	gna.SetStdTPS(20)
+	gna.SetReadTimeout(60 * time.Second)
+	gna.SetWriteTimeout(15 * time.Second)
+	gna.SetMaxTPS(20)
 	ins := gna.NewInstance(&server)
 	if err := gna.RunServer("0.0.0.0:8888", ins); err != nil {
 		log.Fatal(err)

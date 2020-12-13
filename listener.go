@@ -11,15 +11,20 @@ import (
 )
 
 var (
-	stdTimeout = 5 * time.Second
-	stdTPS     = 20 // ticks per second
+	stdReadTimeout  = 15 * time.Second
+	stdWriteTimeout = 15 * time.Second
+	stdTPS          = 20 // ticks per second
 )
 
-func SetStdTimeout(d time.Duration) {
-	stdTimeout = d
+func SetReadTimeout(d time.Duration) {
+	stdReadTimeout = d
 }
 
-func SetStdTPS(tps int) {
+func SetWriteTimeout(d time.Duration) {
+	stdWriteTimeout = d
+}
+
+func SetMaxTPS(tps int) {
 	stdTPS = tps
 }
 
@@ -68,7 +73,7 @@ func (sr *listener) listen(conns chan *net.TCPConn) error {
 			go func() {
 				sr.mainIns.world.Auth(sr.mainIns, p)
 				if p.shouldStart {
-					if p.ins == nil {
+					if p.grp == nil {
 						p.SetInstance(sr.mainIns)
 					}
 					p.start()

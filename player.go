@@ -2,6 +2,7 @@ package gna
 
 import (
 	"encoding/gob"
+	"errors"
 	"fmt"
 	"log"
 	"net"
@@ -13,9 +14,11 @@ func newPlayer(id uint64, c net.Conn) *Player {
 	return &Player{
 		ID:          id,
 		conn:        c,
+		rTimeout:    stdReadTimeout,
+		wTimeout:    stdWriteTimeout,
 		enc:         gob.NewEncoder(c),
 		dec:         gob.NewDecoder(c),
-		blep:        make(chan interface{}, 16),
+		cDisp:       make(chan interface{}, 32),
 		shouldStart: true,
 	}
 }
@@ -31,32 +34,41 @@ type Player struct {
 	wErr error
 	rErr error
 
-	blep chan interface{}
+	cDisp chan interface{}
 
-	ins         *Instance
+	dc          chan *Player // chan to the disconnection handler
+	grp         *Group       // instance group
+	acu         *acumulator  // player acumulator, shared with other players in the instance
+	rTimeout    time.Duration
+	wTimeout    time.Duration
 	shouldStart bool // only used after auth, not concurrently
 }
 
 /*Removes the player from the previous instance, if any,
 and sends him to another.*/
 func (p *Player) SetInstance(ins *Instance) {
-	if p.ins != nil {
-		p.ins.players.Rm(p.ID)
+	if p.grp != nil {
+		p.grp.Rm(p.ID)
 	}
-	p.ins = ins
-	p.ins.players.Add(p)
+	p.grp = ins.players
+	p.acu = ins.acu
+	p.rTimeout = ins.rTimeout
+	p.wTimeout = ins.wTimeout
+	p.dc = ins.dc
+	p.grp.Add(p)
 }
 
 func (p *Player) ship(dt interface{}) {
 	select {
-	case p.blep <- dt:
+	case p.cDisp <- dt:
 	default:
-		p.Close()
+		p.wErr = errors.New("full tcp buffer, bad receiver")
+		p.Close() // this means the TCP buffer of the receiver is full
 	}
 }
 
 func (p *Player) Send(dt interface{}) error {
-	err := p.conn.SetWriteDeadline(time.Now().Add(2 * time.Second))
+	err := p.conn.SetWriteDeadline(time.Now().Add(15 * time.Second))
 	if err != nil {
 		return err
 	}
@@ -64,8 +76,13 @@ func (p *Player) Send(dt interface{}) error {
 }
 
 func (p *Player) Recv() (interface{}, error) {
+	err := p.conn.SetReadDeadline(time.Now().Add(p.rTimeout))
+	if err != nil {
+		err = fmt.Errorf("failed to set deadline: %w", err)
+		return nil, err
+	}
 	var dt interface{}
-	err := p.dec.Decode(&dt)
+	err = p.dec.Decode(&dt)
 	return dt, err
 }
 
@@ -89,7 +106,7 @@ func (p *Player) Close() error {
 }
 
 func (p *Player) disc() {
-	p.ins.dc <- p
+	p.dc <- p
 }
 
 func (p *Player) start() {
@@ -100,9 +117,12 @@ func (p *Player) start() {
 func (p *Player) mouth() {
 	defer p.Close()
 	for {
-		dt := <-p.blep
+		dt := <-p.cDisp
 		err := p.Send(dt)
 		if err != nil {
+			if p.wErr == nil {
+				p.wErr = err
+			}
 			log.Println(err)
 			return
 		}
@@ -113,10 +133,6 @@ func (p *Player) ear() {
 	defer p.disc()
 	defer p.Close()
 	for {
-		err := p.conn.SetReadDeadline(time.Now().Add(p.ins.timeout))
-		if err != nil {
-			p.rErr = fmt.Errorf("failed to set deadline: %w", err)
-		}
 		dt, err := p.Recv()
 		if err != nil {
 			p.rErr = fmt.Errorf("recv: %w", err)
@@ -126,7 +142,7 @@ func (p *Player) ear() {
 			return
 		}
 		if dt != nil { // ?
-			p.ins.acu.add(&Input{p, dt})
+			p.acu.add(&Input{p, dt})
 		}
 	}
 }
@@ -147,7 +163,7 @@ type Group struct {
 	mu   sync.Mutex
 }
 
-func (g *Group) Terminate() {
+func (g *Group) Close() {
 	g.mu.Lock()
 	for _, p := range g.pMap {
 		p.Close()

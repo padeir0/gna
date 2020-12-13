@@ -13,23 +13,25 @@ type World interface {
 
 func NewInstance(sr World) *Instance {
 	return &Instance{
-		world:   sr,
-		timeout: stdTimeout,
-		done:    make(chan struct{}),
-		ticker:  time.NewTicker(time.Second / time.Duration(stdTPS)),
-		players: &Group{pMap: make(map[uint64]*Player, 16)},
-		acu:     &acumulator{dt: make([]*Input, 64)},
-		disp:    make(chan *packet, 1),
-		dc:      make(chan *Player, 1),
+		world:    sr,
+		rTimeout: stdReadTimeout,
+		wTimeout: stdWriteTimeout,
+		done:     make(chan struct{}),
+		ticker:   time.NewTicker(time.Second / time.Duration(stdTPS)),
+		players:  &Group{pMap: make(map[uint64]*Player, 16)},
+		acu:      &acumulator{dt: make([]*Input, 64)},
+		disp:     make(chan *packet, 1),
+		dc:       make(chan *Player, 1),
 	}
 }
 
 type Instance struct { // TODO should Instance have an ID?
-	world   World
-	timeout time.Duration
-	done    chan struct{}
-	started bool
-	ticker  *time.Ticker
+	world    World
+	rTimeout time.Duration
+	wTimeout time.Duration
+	done     chan struct{}
+	started  bool
+	ticker   *time.Ticker
 
 	players *Group
 
@@ -59,7 +61,7 @@ func (ins *Instance) Start() {
 
 func (ins *Instance) terminate() {
 	log.Printf("\n%v\n", ins.players)
-	ins.players.Terminate()
+	ins.players.Close()
 	ins.done <- struct{}{}
 }
 
