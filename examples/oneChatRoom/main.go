@@ -128,7 +128,7 @@ func (r *Room) Auth(ins *gna.Instance, p *gna.Player) {
 	dt, err := p.Recv()
 	if err != nil {
 		log.Println(err)
-		p.Terminate()
+		p.Close()
 		return
 	}
 	if v, ok := dt.(cliAuth); ok {
@@ -143,7 +143,7 @@ func (r *Room) Auth(ins *gna.Instance, p *gna.Player) {
 	r.mu.Unlock()
 	if err != nil {
 		log.Println(err)
-		p.Terminate()
+		p.Close()
 	}
 }
 

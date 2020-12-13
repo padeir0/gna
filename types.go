@@ -19,13 +19,9 @@ func (x *id) newID() uint64 {
 	return out
 }
 
-/*sender permits the dispatching of responses through the dispatcher.
-It should not wait for any syscalls.*/
-type sender interface {
-	/*send sends data to the destination.
-	The send method should not halt, its only job is to send
-	the data to a different goroutine.*/
-	send(data []interface{})
+type shipper interface {
+	/*sends the data to the right chan for dispatching*/
+	ship(interface{})
 }
 
 /*Input is a simple struct that contains
@@ -67,28 +63,30 @@ func (is *acumulator) consume() []*Input {
 	return out
 }
 
-type dispatcher struct {
-	d  map[sender][]interface{}
-	mu sync.Mutex
+type packet struct {
+	s  shipper
+	dt interface{}
 }
 
-func (dp *dispatcher) dispatch() {
-	dp.mu.Lock()
-	defer dp.mu.Unlock()
-	if len(dp.d) == 0 {
-		return
+func dispatcher(data chan *packet) {
+	for {
+		dt := <-data
+		dt.s.ship(dt.dt)
 	}
-	for s, dt := range dp.d {
-		s.send(dt)
-	}
-	dp.d = make(map[sender][]interface{}, 64)
 }
 
-func (dp *dispatcher) addDisp(s sender, dt []interface{}) {
-	dp.mu.Lock()
-	if old, ok := dp.d[s]; ok {
-		dt = append(old, dt...)
+func dcHandler(dc chan *Player, ins *Instance) {
+	for {
+		p := <-dc
+		ins.players.Rm(p.ID)
+		ins.world.Disconn(ins, p)
 	}
-	dp.d[s] = dt
-	dp.mu.Unlock()
 }
+
+/*
+	start := time.Now()
+	end := time.Now()
+	if t := end.Sub(start); t > 40*time.Millisecond {
+		fmt.Printf("\n\n%v %v, %v\n\n", p.ID, t, p.Error())
+	}
+*/

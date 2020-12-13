@@ -65,13 +65,15 @@ func (sr *listener) listen(conns chan *net.TCPConn) error {
 		select {
 		case conn := <-conns:
 			p := newPlayer(sr.idGen.newID(), conn)
-			sr.mainIns.world.Auth(sr.mainIns, p)
-			if !p.dead {
-				if p.ins == nil {
-					p.SetInstance(sr.mainIns)
+			go func() {
+				sr.mainIns.world.Auth(sr.mainIns, p)
+				if p.shouldStart {
+					if p.ins == nil {
+						p.SetInstance(sr.mainIns)
+					}
+					p.start()
 				}
-				p.start()
-			}
+			}()
 		case <-sig:
 			fmt.Println("Stopping server...")
 			sr.mainIns.terminate()

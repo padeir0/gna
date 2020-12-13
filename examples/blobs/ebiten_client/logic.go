@@ -3,11 +3,11 @@ package main
 import (
 	"fmt"
 	"github.com/hajimehoshi/ebiten"
-	"github.com/hajimehoshi/ebiten/ebitenutil"
+	//	"github.com/hajimehoshi/ebiten/ebitenutil"
 	"github.com/kazhmir/gna"
 	"github.com/kazhmir/gna/examples/blobs/shared"
 	"log"
-	"math"
+	//	"math"
 	"sync"
 )
 
@@ -38,6 +38,9 @@ func (g *Game) Update() error {
 	}
 	if input != "" {
 		g.conn.Send(input)
+		if err := g.conn.Error(); err != nil {
+			log.Fatal(err)
+		}
 	}
 	return nil
 }
@@ -80,6 +83,14 @@ func (g *Game) ServerUpdate() {
 				continue
 			}
 			g.blobs[v.ID] = &Blob{d: D, img: ball, Blob: v}
+		case []*shared.Blob:
+			for i := range v {
+				if _, ok := g.blobs[v[i].ID]; ok {
+					g.blobs[v[i].ID].Blob = *v[i]
+					continue
+				}
+				g.blobs[v[i].ID] = &Blob{d: D, img: ball, Blob: *v[i]}
+			}
 		case shared.Event:
 			switch v.T {
 			case shared.EDied:
@@ -92,6 +103,8 @@ func (g *Game) ServerUpdate() {
 				}
 				g.AddBlob(b)
 			}
+		default:
+			fmt.Printf("\n%v\n", data)
 		}
 	}
 }
@@ -111,7 +124,7 @@ func (ent *Blob) draw(screen *ebiten.Image) {
 	newOp.GeoM.Translate(ent.Blob.P.X+offsetx, ent.Blob.P.Y+offsety)
 
 	screen.DrawImage(ent.img, newOp)
-	sin, cos := math.Sincos(ent.Blob.Rot)
-	s := fmt.Sprintf("x: %v, y: %v, rot: %v\nsin: %v, cos: %v", ent.Blob.P.X, ent.Blob.P.Y, ent.Blob.Rot, sin, cos)
-	ebitenutil.DebugPrint(screen, s)
+	//	sin, cos := math.Sincos(ent.Blob.Rot)
+	//	s := fmt.Sprintf("x: %v, y: %v, rot: %v\nsin: %v, cos: %v", ent.Blob.P.X, ent.Blob.P.Y, ent.Blob.Rot, sin, cos)
+	//	ebitenutil.DebugPrint(screen, s)
 }

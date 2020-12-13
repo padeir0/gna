@@ -25,7 +25,7 @@ var (
 )
 
 func main() {
-	gna.Register(shared.Blob{}, shared.Point{}, shared.Event{})
+	gna.Register(shared.Blob{}, shared.Point{}, shared.Event{}, []*shared.Blob{})
 	var d float64
 	ball, d = getImage("ball.png")
 	ebiten.SetWindowSize(scrWid, scrHei)
@@ -73,10 +73,10 @@ func Connect(addr, pwd string) (*gna.Client, *shared.Blob) {
 	if err != nil {
 		log.Fatal(err)
 	}
-	client.SetTimeout(60 * time.Second)
-	client.Start()
 	v, ok := dt[0].(shared.Blob)
 	if ok {
+		client.SetTimeout(60 * time.Second)
+		client.Start()
 		return client, &v
 	}
 	log.Fatalf("data was not blob: %v", dt[0])
