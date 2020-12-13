@@ -187,6 +187,9 @@ func (g *Group) Rm(id uint64) {
 }
 
 /*Send sends the sig channel and data to each Talker in the group*/
+/*TODO: Group should encode the data only once, to a bytes.Buffer
+and write to the connection using conn.Write(Buffer.Bytes())
+*/
 func (g *Group) ship(data interface{}) {
 	g.mu.Lock()
 	for _, p := range g.pMap {

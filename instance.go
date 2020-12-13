@@ -69,6 +69,11 @@ func (ins *Instance) GetData() []*Input {
 	return ins.acu.consume()
 }
 
+/*
+TODO: The Three following methods should a single one:
+func (ins *Instance) Dispatch(s Shipper, data interface{}) {
+}
+*/
 func (ins *Instance) Broadcast(dt interface{}) {
 	ins.disp <- &packet{ins.players, dt}
 }

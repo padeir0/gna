@@ -82,11 +82,3 @@ func dcHandler(dc chan *Player, ins *Instance) {
 		ins.world.Disconn(ins, p)
 	}
 }
-
-/*
-	start := time.Now()
-	end := time.Now()
-	if t := end.Sub(start); t > 40*time.Millisecond {
-		fmt.Printf("\n\n%v %v, %v\n\n", p.ID, t, p.Error())
-	}
-*/
