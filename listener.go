@@ -92,7 +92,7 @@ func (sr *listener) listen(conns chan *net.TCPConn) error {
 			}()
 		case <-sig:
 			fmt.Println("Stopping server...")
-			sr.mainIns.terminate()
+			sr.mainIns.Terminate()
 			return nil
 		}
 	}

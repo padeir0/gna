@@ -33,7 +33,8 @@ func main() {
 	}
 	if *addr != "" {
 		sr := &Room{Users: make(map[uint64]string, 64)}
-		gna.SetStdTimeout(60 * time.Second)
+		gna.SetReadTimeout(60 * time.Second)
+		gna.SetWriteTimeout(60 * time.Second)
 		ins := gna.NewInstance(sr)
 		go func() {
 			if err := gna.RunServer(*addr, ins); err != nil {
@@ -59,7 +60,7 @@ func CliUpdate() {
 	ticker := time.NewTicker(50 * time.Millisecond)
 	for {
 		<-ticker.C
-		data, _ := cli.Recv() // err is aways nil with cli.Start()
+		data := cli.RecvBatch() // err is aways nil with cli.Start()
 		if err := cli.Error(); err != nil {
 			log.Fatalf("Recv Error: %v\n", err)
 		}
@@ -101,7 +102,7 @@ func Connect(addr, name string) *gna.Client {
 		log.Fatal(err)
 	}
 	dts, err := cli.Recv()
-	if v, ok := dts[0].(srAuth); ok {
+	if v, ok := dts.(srAuth); ok {
 		fmt.Printf("UserID: %v\n", v.UserID)
 	}
 	cli.Start()
@@ -118,7 +119,7 @@ func (r *Room) Update(ins *gna.Instance) {
 	for _, input := range dt {
 		if s, ok := input.Data.(string); ok {
 			r.mu.Lock()
-			ins.Broadcast(Message{Username: r.Users[input.P.ID], Data: s})
+			ins.Dispatch(ins.Players, Message{Username: r.Users[input.P.ID], Data: s})
 			r.mu.Unlock()
 		}
 	}
@@ -135,7 +136,7 @@ func (r *Room) Auth(ins *gna.Instance, p *gna.Player) {
 		r.mu.Lock()
 		r.Users[p.ID] = v.Name
 		fmt.Printf("%v (ID: %v) Connected.\n", v.Name, p.ID)
-		ins.Broadcast(Message{Username: "server", Data: v.Name + " Connected."})
+		ins.Dispatch(ins.Players, Message{Username: "server", Data: v.Name + " Connected."})
 		r.mu.Unlock()
 	}
 	r.mu.Lock()
@@ -149,7 +150,7 @@ func (r *Room) Auth(ins *gna.Instance, p *gna.Player) {
 
 func (r *Room) Disconn(ins *gna.Instance, p *gna.Player) {
 	fmt.Printf("%v (ID: %v) Disconnected. Reason: %v\n", r.Users[p.ID], p.ID, p.Error())
-	ins.Broadcast(Message{Username: "server", Data: r.Users[p.ID] + " Disconnected."})
+	ins.Dispatch(ins.Players, Message{Username: "server", Data: r.Users[p.ID] + " Disconnected."})
 	r.mu.Lock()
 	delete(r.Users, p.ID)
 	r.mu.Unlock()

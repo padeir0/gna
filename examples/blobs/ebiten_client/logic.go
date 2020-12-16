@@ -68,7 +68,7 @@ func (g *Game) RmBlob(id uint64) {
 }
 
 func (g *Game) ServerUpdate() {
-	dt, _ := g.conn.Recv()
+	dt := g.conn.RecvBatch()
 	if len(dt) == 0 {
 		return
 	}

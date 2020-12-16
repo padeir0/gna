@@ -51,7 +51,7 @@ func Connect(addr, pwd string) (*gna.Client, *shared.Blob) {
 	if err != nil {
 		panic(err)
 	}
-	v, ok := dt[0].(shared.Blob)
+	v, ok := dt.(shared.Blob)
 	if ok {
 		client.SetTimeout(60 * time.Second)
 		client.Start()
@@ -64,7 +64,7 @@ func RunBot(c *gna.Client) {
 	defer c.Close()
 	ticker := time.NewTicker(20 * time.Millisecond)
 	for i := 0; ; i++ {
-		_, _ = c.Recv() /* explicitly discarding the recv data for the TCP buffer be freed,
+		_ = c.RecvBatch() /* explicitly discarding the recv data for the TCP buffer be freed,
 		if the TCP buffer gets full, the server will send data until the channel Player.cDisp is full
 		and then close the connection. It is necessary to close the connection in this case to free
 		server resources in case o faulty receivers.

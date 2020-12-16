@@ -35,7 +35,7 @@ type EchoServer struct {
 func (es *EchoServer) Update(ins *gna.Instance) {
 	dt := ins.GetData()
 	for i := range dt {
-		ins.Unicast(dt[i].P, dt[i].Data)
+		ins.Dispatch(dt[i].P, dt[i].Data)
 	}
 }
 

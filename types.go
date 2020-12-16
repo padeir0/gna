@@ -78,7 +78,7 @@ func dispatcher(data chan *packet) {
 func dcHandler(dc chan *Player, ins *Instance) {
 	for {
 		p := <-dc
-		ins.players.Rm(p.ID)
+		ins.Players.Rm(p.ID)
 		ins.world.Disconn(ins, p)
 	}
 }

@@ -55,7 +55,7 @@ func (m *minion) start(data []string) {
 	var err error
 	m.cli, err = gna.Dial(*host)
 	Error(err)
-	defer m.cli.Terminate()
+	defer m.cli.Close()
 	var nOfPkts int
 	m.buff = make([]byte, 64)
 	for {
@@ -75,7 +75,7 @@ func (m *minion) start(data []string) {
 					return
 				}
 				Error(err)
-				s, ok := dt[0].(string)
+				s, ok := dt.(string)
 				if ok {
 					fmt.Printf("Recv: %s\n", s)
 				}

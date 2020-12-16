@@ -73,12 +73,12 @@ func Connect(addr, pwd string) (*gna.Client, *shared.Blob) {
 	if err != nil {
 		log.Fatal(err)
 	}
-	v, ok := dt[0].(shared.Blob)
+	v, ok := dt.(shared.Blob)
 	if ok {
 		client.SetTimeout(60 * time.Second)
 		client.Start()
 		return client, &v
 	}
-	log.Fatalf("data was not blob: %v", dt[0])
+	log.Fatalf("data was not blob: %v", dt)
 	return nil, nil
 }

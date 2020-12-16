@@ -79,11 +79,11 @@ func (sr *Server) Update(ins *gna.Instance) {
 			fmt.Println()
 		}
 	*/
-	ins.Broadcast(updates)
+	ins.Dispatch(ins.Players, updates)
 }
 
 func (sr *Server) Disconn(ins *gna.Instance, p *gna.Player) {
-	ins.Broadcast(shared.Event{ID: p.ID, T: shared.EDied})
+	ins.Dispatch(ins.Players, shared.Event{ID: p.ID, T: shared.EDied})
 	sr.mu.Lock()
 	delete(sr.blobs, p.ID)
 	sr.mu.Unlock()
@@ -106,7 +106,7 @@ func (sr *Server) Auth(ins *gna.Instance, p *gna.Player) {
 				p.Send(b)
 			}
 			sr.mu.Unlock()
-			ins.Broadcast(shared.Event{ID: p.ID, T: shared.EBorn})
+			ins.Dispatch(ins.Players, shared.Event{ID: p.ID, T: shared.EBorn})
 			return
 		}
 	}

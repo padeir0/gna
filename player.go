@@ -4,7 +4,6 @@ import (
 	"encoding/gob"
 	"errors"
 	"fmt"
-	"log"
 	"net"
 	"sync"
 	"time"
@@ -31,8 +30,8 @@ type Player struct {
 	conn net.Conn
 	enc  *gob.Encoder
 	dec  *gob.Decoder
-	wErr error
-	rErr error
+	wErr error // encode/write error
+	rErr error // decode/read error
 
 	cDisp chan interface{}
 
@@ -44,13 +43,13 @@ type Player struct {
 	shouldStart bool // only used after auth, not concurrently
 }
 
-/*Removes the player from the previous instance, if any,
+/*SetInstance removes the player from the previous instance, if any,
 and sends him to another.*/
 func (p *Player) SetInstance(ins *Instance) {
 	if p.grp != nil {
 		p.grp.Rm(p.ID)
 	}
-	p.grp = ins.players
+	p.grp = ins.Players
 	p.acu = ins.acu
 	p.rTimeout = ins.rTimeout
 	p.wTimeout = ins.wTimeout
@@ -62,11 +61,14 @@ func (p *Player) ship(dt interface{}) {
 	select {
 	case p.cDisp <- dt:
 	default:
-		p.wErr = errors.New("full tcp buffer, bad receiver")
+		p.wErr = errors.New("full tcp buffer")
 		p.Close() // this means the TCP buffer of the receiver is full
 	}
 }
 
+/*Send sets the deadline and encodes the data, it may halt, but it returns the error
+in case of failure, guaranteeing knowledge if the user has the data.
+This differs from Player.ship() in which it's only known after the connection is closed.*/
 func (p *Player) Send(dt interface{}) error {
 	err := p.conn.SetWriteDeadline(time.Now().Add(15 * time.Second))
 	if err != nil {
@@ -75,6 +77,8 @@ func (p *Player) Send(dt interface{}) error {
 	return p.enc.Encode(&dt)
 }
 
+/*Recv sets the deadline and decodes data from the connection, you cannot use this safely
+after Auth, as the goroutine responsible for receiving data is started.*/
 func (p *Player) Recv() (interface{}, error) {
 	err := p.conn.SetReadDeadline(time.Now().Add(p.rTimeout))
 	if err != nil {
@@ -86,6 +90,7 @@ func (p *Player) Recv() (interface{}, error) {
 	return dt, err
 }
 
+/*Error returns the error that caused the Player to disconnect.*/
 func (p *Player) Error() error {
 	if p.wErr != nil {
 		if p.rErr != nil {
@@ -123,7 +128,6 @@ func (p *Player) mouth() {
 			if p.wErr == nil {
 				p.wErr = err
 			}
-			log.Println(err)
 			return
 		}
 	}
@@ -147,6 +151,7 @@ func (p *Player) ear() {
 	}
 }
 
+/*NewGroup creates a group containing the specified players*/
 func NewGroup(ps ...*Player) *Group {
 	pMap := make(map[uint64]*Player, len(ps))
 	for i := range ps {
@@ -163,6 +168,8 @@ type Group struct {
 	mu   sync.Mutex
 }
 
+/*Close closes all players inside the Group and frees the map for garbage
+collection.*/
 func (g *Group) Close() {
 	g.mu.Lock()
 	for _, p := range g.pMap {
@@ -186,10 +193,8 @@ func (g *Group) Rm(id uint64) {
 	g.mu.Unlock()
 }
 
-/*Send sends the sig channel and data to each Talker in the group*/
-/*TODO: Group should encode the data only once, to a bytes.Buffer
-and write to the connection using conn.Write(Buffer.Bytes())
-*/
+/*ship sends the sig channel and data to each Talker in the group*/
+//TODO: This method makes each Player.ear do duplicated work, it should be optimized to encode only once
 func (g *Group) ship(data interface{}) {
 	g.mu.Lock()
 	for _, p := range g.pMap {
@@ -198,7 +203,7 @@ func (g *Group) ship(data interface{}) {
 	g.mu.Unlock()
 }
 
-/*Returns the number of players in the group*/
+/*Len returns the number of players in the group*/
 func (g *Group) Len() int {
 	g.mu.Lock()
 	out := len(g.pMap)
