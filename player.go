@@ -50,11 +50,11 @@ func (p *Player) SetInstance(ins *Instance) {
 		p.grp.Rm(p.ID)
 	}
 	p.grp = ins.Players
+	p.grp.Add(p)
 	p.acu = ins.acu
 	p.rTimeout = ins.rTimeout
 	p.wTimeout = ins.wTimeout
 	p.dc = ins.dc
-	p.grp.Add(p)
 }
 
 func (p *Player) ship(dt interface{}) {

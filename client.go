@@ -50,6 +50,7 @@ If used with a unstarted Client it panics.*/
 func (c *Client) Dispatch(data interface{}) {
 	if c.started {
 		c.p.cDisp <- data
+		return
 	}
 	panic("cannot dispatch, client not started")
 }
