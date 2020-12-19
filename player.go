@@ -45,16 +45,17 @@ type Player struct {
 
 /*SetInstance removes the player from the previous instance, if any,
 and sends him to another.*/
-func (p *Player) SetInstance(ins *Instance) {
+func (p *Player) SetInstance(ins Instance) {
+	n := ins.NetAbs()
 	if p.grp != nil {
 		p.grp.Rm(p.ID)
 	}
-	p.grp = ins.Players
+	p.grp = n.Players
 	p.grp.Add(p)
-	p.acu = ins.acu
-	p.rTimeout = ins.rTimeout
-	p.wTimeout = ins.wTimeout
-	p.dc = ins.dc
+	p.acu = n.acu
+	p.rTimeout = n.rTimeout
+	p.wTimeout = n.wTimeout
+	p.dc = n.dc
 }
 
 func (p *Player) ship(dt interface{}) {

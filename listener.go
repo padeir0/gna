@@ -42,7 +42,7 @@ func Register(dt ...interface{}) {
 }
 
 /*RunServer starts the listener and the instance*/
-func RunServer(addr string, ins *Instance) error {
+func RunServer(addr string, ins Instance) error {
 	l := listener{
 		mainIns: ins,
 	}
@@ -50,7 +50,7 @@ func RunServer(addr string, ins *Instance) error {
 }
 
 type listener struct {
-	mainIns *Instance
+	mainIns Instance
 	idGen   id
 }
 
@@ -66,7 +66,7 @@ func (sr *listener) start(addr string) error {
 	chConns := make(chan *net.TCPConn)
 
 	go connRecv(listener, chConns)
-	go sr.mainIns.Start()
+	go RunInstance(sr.mainIns)
 
 	fmt.Println("listening on: ", addr)
 	return sr.listen(chConns)
@@ -82,10 +82,10 @@ func (sr *listener) listen(conns chan *net.TCPConn) error {
 		case conn := <-conns:
 			p := newPlayer(sr.idGen.newID(), conn)
 			go func() {
-				sr.mainIns.world.Auth(sr.mainIns, p)
+				sr.mainIns.Auth(p) // sr.mainIns.Auth(sr.mainIns.Instance())
 				if p.shouldStart {
 					if p.grp == nil {
-						p.SetInstance(sr.mainIns)
+						p.SetInstance(sr.mainIns) // sr.mainIns.Instance()
 					}
 					p.start()
 				}

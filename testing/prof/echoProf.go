@@ -22,27 +22,26 @@ func main() {
 		defer pprof.StopCPUProfile()
 	}
 
-	server := &EchoServer{}
-	ins := gna.NewInstance(server)
-	if err := gna.RunServer("localhost:8888", ins); err != nil {
+	if err := gna.RunServer("localhost:8888", &EchoServer{}); err != nil {
 		log.Fatal(err)
 	}
 }
 
 type EchoServer struct {
+	gna.Net
 }
 
-func (es *EchoServer) Update(ins *gna.Instance) {
-	dt := ins.GetData()
+func (es *EchoServer) Update() {
+	dt := es.GetData()
 	for i := range dt {
-		ins.Dispatch(dt[i].P, dt[i].Data)
+		es.Dispatch(dt[i].P, dt[i].Data)
 	}
 }
 
-func (es *EchoServer) Auth(ins *gna.Instance, p *gna.Player) {
+func (es *EchoServer) Auth(p *gna.Player) {
 	fmt.Println("Connected: ", p.ID)
 }
 
-func (es *EchoServer) Disconn(ins *gna.Instance, p *gna.Player) {
+func (es *EchoServer) Disconn(p *gna.Player) {
 	fmt.Printf("Disconnected: %v, Reason: %v\n", p.ID, p.Error())
 }

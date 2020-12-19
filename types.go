@@ -63,22 +63,11 @@ func (is *acumulator) consume() []*Input {
 	return out
 }
 
-type packet struct {
-	s  shipper
-	dt interface{}
-}
-
-func dispatcher(data chan *packet) {
-	for {
-		dt := <-data
-		dt.s.ship(dt.dt)
-	}
-}
-
-func dcHandler(dc chan *Player, ins *Instance) {
+func dcHandler(dc chan *Player, ins Instance) {
+	n := ins.NetAbs()
 	for {
 		p := <-dc
-		ins.Players.Rm(p.ID)
-		ins.world.Disconn(ins, p)
+		n.Players.Rm(p.ID)
+		ins.Disconn(p)
 	}
 }

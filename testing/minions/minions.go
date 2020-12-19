@@ -62,6 +62,7 @@ func (m *minion) start(data []string) {
 		for i := range data {
 			go func() {
 				fmt.Println("sending: ", data[i])
+				time.Sleep(latency)
 				err := m.cli.Send(data[i])
 				Error(err)
 				nOfPkts++

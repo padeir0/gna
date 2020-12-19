@@ -3,7 +3,6 @@ package main
 import (
 	"errors"
 	"flag"
-	//"fmt"
 	"github.com/kazhmir/gna"
 	"github.com/kazhmir/gna/examples/blobs/shared"
 	"log"
@@ -22,21 +21,20 @@ func main() {
 		if err != nil {
 			log.Fatal("could not create CPU profile: ", err)
 		}
-		defer f.Close() // error handling omitted for example
+		defer f.Close()
 		if err := pprof.StartCPUProfile(f); err != nil {
 			log.Fatal("could not start CPU profile: ", err)
 		}
 		defer pprof.StopCPUProfile()
 	}
 	gna.Register(shared.Blob{}, shared.Point{}, shared.Event{}, []*shared.Blob{})
-	server := Server{
+	server := &Server{
 		blobs: make(map[uint64]*shared.Blob, 64),
 	}
 	gna.SetReadTimeout(60 * time.Second)
 	gna.SetWriteTimeout(15 * time.Second)
 	gna.SetMaxTPS(20)
-	ins := gna.NewInstance(&server)
-	if err := gna.RunServer("0.0.0.0:8888", ins); err != nil {
+	if err := gna.RunServer("0.0.0.0:8888", server); err != nil {
 		log.Fatal(err)
 	}
 }
@@ -44,14 +42,15 @@ func main() {
 type Server struct {
 	blobs map[uint64]*shared.Blob
 	mu    sync.Mutex
+	gna.Net
 }
 
 var i int
 
-func (sr *Server) Update(ins *gna.Instance) {
+func (sr *Server) Update() {
 	sr.mu.Lock()
 	defer sr.mu.Unlock()
-	data := ins.GetData()
+	data := sr.GetData()
 	updates := []*shared.Blob{}
 	for _, input := range data {
 		v, _ := input.Data.(string)
@@ -72,26 +71,18 @@ func (sr *Server) Update(ins *gna.Instance) {
 			updates = append(updates, b)
 		}
 	}
-	/*
-		fmt.Printf("%v ", len(updates))
-		i++
-		if i%50 == 0 {
-			fmt.Println()
-		}
-	*/
-	ins.Dispatch(ins.Players, updates)
+	sr.Dispatch(sr.Players, updates)
 }
 
-func (sr *Server) Disconn(ins *gna.Instance, p *gna.Player) {
-	ins.Dispatch(ins.Players, shared.Event{ID: p.ID, T: shared.EDied})
+func (sr *Server) Disconn(p *gna.Player) {
+	sr.Dispatch(sr.Players, shared.Event{ID: p.ID, T: shared.EDied})
 	sr.mu.Lock()
 	delete(sr.blobs, p.ID)
 	sr.mu.Unlock()
 	log.Printf("%v Disconnected. Reason: %v\n", p.ID, p.Error())
 }
 
-func (sr *Server) Auth(ins *gna.Instance, p *gna.Player) {
-	//	log.Println(p.ID, "is trying to connect!")
+func (sr *Server) Auth(p *gna.Player) {
 	a, err := p.Recv()
 	if err != nil {
 		log.Println(err)
@@ -106,7 +97,7 @@ func (sr *Server) Auth(ins *gna.Instance, p *gna.Player) {
 				p.Send(b)
 			}
 			sr.mu.Unlock()
-			ins.Dispatch(ins.Players, shared.Event{ID: p.ID, T: shared.EBorn})
+			sr.Dispatch(sr.Players, shared.Event{ID: p.ID, T: shared.EBorn})
 			return
 		}
 	}

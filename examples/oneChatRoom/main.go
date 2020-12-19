@@ -32,12 +32,10 @@ func main() {
 		return
 	}
 	if *addr != "" {
-		sr := &Room{Users: make(map[uint64]string, 64)}
 		gna.SetReadTimeout(60 * time.Second)
 		gna.SetWriteTimeout(60 * time.Second)
-		ins := gna.NewInstance(sr)
 		go func() {
-			if err := gna.RunServer(*addr, ins); err != nil {
+			if err := gna.RunServer(*addr, &Room{Users: make(map[uint64]string, 64)}); err != nil {
 				log.Fatal(err)
 			}
 			close(done)
@@ -111,21 +109,22 @@ func Connect(addr, name string) *gna.Client {
 
 type Room struct {
 	Users map[uint64]string
-	mu    sync.Mutex
+	gna.Net
+	mu sync.Mutex
 }
 
-func (r *Room) Update(ins *gna.Instance) {
-	dt := ins.GetData()
+func (r *Room) Update() {
+	dt := r.GetData()
 	for _, input := range dt {
 		if s, ok := input.Data.(string); ok {
 			r.mu.Lock()
-			ins.Dispatch(ins.Players, Message{Username: r.Users[input.P.ID], Data: s})
+			r.Dispatch(r.Players, Message{Username: r.Users[input.P.ID], Data: s})
 			r.mu.Unlock()
 		}
 	}
 }
 
-func (r *Room) Auth(ins *gna.Instance, p *gna.Player) {
+func (r *Room) Auth(p *gna.Player) {
 	dt, err := p.Recv()
 	if err != nil {
 		log.Println(err)
@@ -136,7 +135,7 @@ func (r *Room) Auth(ins *gna.Instance, p *gna.Player) {
 		r.mu.Lock()
 		r.Users[p.ID] = v.Name
 		fmt.Printf("%v (ID: %v) Connected.\n", v.Name, p.ID)
-		ins.Dispatch(ins.Players, Message{Username: "server", Data: v.Name + " Connected."})
+		r.Dispatch(r.Players, Message{Username: "server", Data: v.Name + " Connected."})
 		r.mu.Unlock()
 	}
 	r.mu.Lock()
@@ -148,9 +147,9 @@ func (r *Room) Auth(ins *gna.Instance, p *gna.Player) {
 	}
 }
 
-func (r *Room) Disconn(ins *gna.Instance, p *gna.Player) {
+func (r *Room) Disconn(p *gna.Player) {
 	fmt.Printf("%v (ID: %v) Disconnected. Reason: %v\n", r.Users[p.ID], p.ID, p.Error())
-	ins.Dispatch(ins.Players, Message{Username: "server", Data: r.Users[p.ID] + " Disconnected."})
+	r.Dispatch(r.Players, Message{Username: "server", Data: r.Users[p.ID] + " Disconnected."})
 	r.mu.Lock()
 	delete(r.Users, p.ID)
 	r.mu.Unlock()
