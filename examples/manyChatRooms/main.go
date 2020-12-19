@@ -14,8 +14,8 @@ import (
 )
 
 var (
-	addr = flag.String("serve", "", "Hosting address (for you to host your own room).")
-	host = flag.String("conn", "", "Server address (the room you're trying to connect).")
+	addr = flag.String("server", "", "Hosting address (for you to host your own room).")
+	host = flag.String("client", "", "Server address (the room you're trying to connect).")
 	name = flag.String("name", "idiot", "Client name.")
 )
 
