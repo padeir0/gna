@@ -14,12 +14,15 @@ type Instance interface {
 	/*Disconn happens when a player disconnects*/
 	Disconn(*Player)
 	/*Auth happens when a player connects, to refuse the player connection
-	simply close it: Player.Close(). To accept it, leave it be. The instance is the
-	main instance of the server, if you do not manually set the instance with Player.SetInstance
-	the player is set to the main instance.
+	simply close it: Player.Close(). To accept it, leave it be. The instance is
+	the main instance of the server, if you do not manually set the instance with
+	Player.SetInstance, the player is set to the main instance.
 	*/
 	Auth(*Player)
+	/*NetAbs exposes the underlying networking abstraction,
+	  this is for internal use only.*/
 	NetAbs() *Net
+	/*Terminate closes all connections inside the instance and stops the updates*/
 	Terminate()
 }
 
