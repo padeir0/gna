@@ -16,14 +16,15 @@ GNA stands for Game Networking Abstraction, it packs a server and a client for g
 ## Usage
 
 ### Components
-
-![visualization](./docs/complex.png)
+<p align="center">
+  <img src="./docs/complex.png">
+</p>
 
 This image helps visualize how the components play together, from bottom up:
 
 - **Player**: this data strucure owns the connection to the client, it contains an unique uint64 ID and is reponsible for receiving and dispatching data from/to the client.
 
-- **Group**: a collection of Players protected by a sync.Mutex, it can be used to multicast the same piece of data to every Player inside it, regardless of Instance or Server. Every instance has a Group named Net.Players that contain all players in the instance. The Group is not aware of the state of each connection, meaning you need to keep track of Players in your implementation.
+- **Group**: a collection of Players protected by a sync.Mutex, it can be used to multicast the same piece of data to every Player inside it, regardless of Instance. Every instance has a Group named Net.Players that contain all players in the instance. The Group is not aware of the state of each connection, meaning you need to keep track of Players in your implementation.
 
 - **Instance**: it's built from two pieces: Logic and Net. Players can send data to one Instance at a time, but a Instance can Dispatch data to any Player.
 	- **Logic**: it's your server logic, represented by the methods Auth, Disconn and Update. The method Auth is run only in the main Instance, the Disconn is run whenever a Player disconnects and the Update is run once every tick.
@@ -34,7 +35,9 @@ This image helps visualize how the components play together, from bottom up:
 
 Although the above image uses every component as an example, most simple servers will only be:
 
-![visualization](./docs/simple.png)
+<p align="center">
+  <img src="./docs/simple.png">
+</p>
 
 ### How it goes
 
