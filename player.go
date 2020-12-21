@@ -44,6 +44,11 @@ func (p *Player) start() {
 and sends him to another.*/
 func (p *Player) SetInstance(ins Instance) {
 	n := ins.NetAbs()
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	if !n.started {
+		panic("instance not started") // probably a little too harsh
+	}
 	if p.grp != nil {
 		p.grp.Rm(p.ID)
 	}

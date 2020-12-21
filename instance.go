@@ -29,12 +29,14 @@ If RunInstance is called twice in a Instance it just returns.
 */
 func RunInstance(ins Instance) {
 	n := ins.NetAbs()
+	n.mu.Lock()
 	if n.started {
 		return
 	}
 	n.fillDefault()
-	go dcHandler(n.dc, ins)
 	n.started = true
+	n.mu.Unlock()
+	go dcHandler(n.dc, ins)
 	for {
 		select {
 		case <-n.ticker.C:

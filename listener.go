@@ -83,10 +83,10 @@ func (sr *listener) listen(conns chan *net.TCPConn) error {
 		case conn := <-conns:
 			p := newPlayer(sr.idGen.newID(), conn)
 			go func() {
-				sr.mainIns.Auth(p) // sr.mainIns.Auth(sr.mainIns.Instance())
+				sr.mainIns.Auth(p)
 				if p.shouldStart {
 					if p.grp == nil {
-						p.SetInstance(sr.mainIns) // sr.mainIns.Instance()
+						p.SetInstance(sr.mainIns)
 					}
 					p.start()
 				}

@@ -2,6 +2,7 @@ package gna
 
 import (
 	"fmt"
+	"sync"
 	"time"
 )
 
@@ -12,13 +13,15 @@ type Net struct {
 	rTimeout time.Duration
 	wTimeout time.Duration
 	done     chan struct{}
-	started  bool
 	ticker   *time.Ticker
 
 	Players *Group
 
 	acu *playerBucket
 	dc  chan *Player
+
+	started bool
+	mu      sync.Mutex
 }
 
 /*NetAbs exposes the underlying networking abstraction,
