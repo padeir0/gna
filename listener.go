@@ -7,6 +7,7 @@ import (
 	"net"
 	"os"
 	"os/signal"
+	"sync"
 	"time"
 )
 
@@ -110,4 +111,18 @@ func connRecv(l *net.TCPListener, out chan *net.TCPConn) {
 		}
 		out <- conn
 	}
+}
+
+type id struct {
+	i  uint64
+	mu sync.Mutex
+}
+
+func (x *id) newID() uint64 {
+	var out uint64
+	x.mu.Lock()
+	out = x.i
+	x.i++
+	x.mu.Unlock()
+	return out
 }

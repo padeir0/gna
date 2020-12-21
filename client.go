@@ -4,6 +4,7 @@ import (
 	"encoding/gob"
 	"fmt"
 	"net"
+	"sync"
 	"time"
 )
 
@@ -15,15 +16,14 @@ func Dial(addr string) (*Client, error) {
 		return nil, err
 	}
 	cli := &Client{
-		p: &Player{
+		acu: &cliBucket{dt: make([]interface{}, 64)},
+		dispatcher: dispatcher{
 			conn:        c,
 			enc:         gob.NewEncoder(c),
 			dec:         gob.NewDecoder(c),
 			rTimeout:    stdReadTimeout,
 			wTimeout:    stdWriteTimeout,
 			cDisp:       make(chan interface{}),
-			dc:          make(chan *Player, 2),
-			acu:         &acumulator{dt: make([]*Input, 64)},
 			shouldStart: true,
 		},
 	}
@@ -32,13 +32,15 @@ func Dial(addr string) (*Client, error) {
 
 /*Client abstracts the connection handling and communication with the server.*/
 type Client struct {
-	p       *Player
+	acu     *cliBucket
+	err     error
 	started bool
+	dispatcher
 }
 
 /*Send sets the deadline and encodes the data*/
 func (c *Client) Send(dt interface{}) error {
-	err := c.p.Send(dt)
+	err := c.dispatcher.Send(dt)
 	if err != nil {
 		err = fmt.Errorf("%w while encoding: %v", err, dt)
 	}
@@ -49,7 +51,7 @@ func (c *Client) Send(dt interface{}) error {
 If used with a unstarted Client it panics.*/
 func (c *Client) Dispatch(data interface{}) {
 	if c.started {
-		c.p.cDisp <- data
+		c.cDisp <- data
 		return
 	}
 	panic("cannot dispatch, client not started")
@@ -61,7 +63,7 @@ func (c *Client) Recv() (interface{}, error) {
 	if c.started {
 		panic("recv cannot be used safely after Client has started")
 	}
-	out, err := c.p.Recv()
+	out, err := c.dispatcher.Recv()
 	if out == nil {
 		return nil, err
 	}
@@ -71,41 +73,75 @@ func (c *Client) Recv() (interface{}, error) {
 /*RecvBatch empties the acumulator, retrieving the data*/
 func (c *Client) RecvBatch() []interface{} {
 	if c.started {
-		dt := c.p.acu.consume()
-		out := make([]interface{}, len(dt))
-		for i := range dt {
-			out[i] = dt[i].Data
-		}
-		return out
+		return c.acu.consume()
 	}
 	return nil
-}
-
-/*Close closes the Client connection*/
-func (c *Client) Close() error {
-	return c.p.conn.Close()
-}
-
-/*Error returns the last error that happened in the client goroutines*/
-func (c *Client) Error() error {
-	return c.p.Error()
 }
 
 /*Start starts the client receiver and dispatcher*/
 func (c *Client) Start() {
 	c.started = true
-	go func() {
-		defer c.Close()
-		c.p.mouth()
-	}()
-	go func() {
-		defer c.Close()
-		c.p.ear()
-	}()
+	go c.dispatcher.work()
+	go c.receiver()
 }
 
 /*SetTimeout sets both read and write timeout*/
 func (c *Client) SetTimeout(t time.Duration) {
-	c.p.rTimeout = t // racy c:
-	c.p.wTimeout = t // racy c:
+	c.rTimeout = t // racy c:
+	c.wTimeout = t // racy c:
+}
+
+func (c *Client) Error() error {
+	if c.err != nil {
+		if c.dispatcher.err != nil {
+			return fmt.Errorf("%w, alongside: %v", c.err, c.dispatcher.err)
+		}
+		return c.err
+	}
+	if c.dispatcher.err != nil {
+		return c.dispatcher.err
+	}
+	return nil
+}
+
+func (c *Client) receiver() {
+	defer c.Close()
+	for {
+		dt, err := c.dispatcher.Recv()
+		if err != nil {
+			c.err = fmt.Errorf("recv: %w", err)
+			if opErr, ok := err.(*net.OpError); ok && opErr.Timeout() {
+				return
+			}
+			return
+		}
+		if dt != nil { // ?
+			c.acu.add(dt)
+		}
+	}
+}
+
+type cliBucket struct {
+	dt []interface{}
+	i  int
+	mu sync.Mutex
+}
+
+func (is *cliBucket) add(dt interface{}) {
+	is.mu.Lock()
+	if is.i > len(is.dt) {
+		is.dt = append(is.dt, make([]interface{}, 64)...)
+	}
+	is.dt[is.i] = dt
+	is.i++
+	is.mu.Unlock()
+}
+
+func (is *cliBucket) consume() []interface{} {
+	is.mu.Lock()
+	out := make([]interface{}, is.i)
+	copy(out, is.dt[:is.i])
+	is.i = 0
+	is.mu.Unlock()
+	return out
 }
