@@ -1,7 +1,6 @@
 package gna
 
 import (
-	"fmt"
 	"sync"
 	"time"
 )
@@ -56,16 +55,4 @@ func (n *Net) GetData() []*Input {
 the structs that implement ship() are: Players and Groups*/
 func (*Net) Dispatch(s shipper, data interface{}) {
 	s.ship(data)
-}
-
-/*Input is a simple struct that contains
-the data sent from the Player and a pointer to the Player.
-*/
-type Input struct {
-	P    *Player
-	Data interface{}
-}
-
-func (i *Input) String() string {
-	return fmt.Sprintf("{%v %v}", i.P, i.Data)
 }

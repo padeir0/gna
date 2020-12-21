@@ -26,7 +26,7 @@ This image helps visualize how the components play together, from bottom up:
 
 - **Group**: a collection of Players protected by a sync.Mutex, it can be used to multicast the same piece of data to every Player inside it, regardless of Instance. Every instance has a Group named Net.Players that contain all players in the instance. The Group is not aware of the state of each connection, meaning you need to keep track of Players in your implementation.
 
-- **Instance**: it's built from two pieces: Logic and Net. Players can send data to one Instance at a time, but a Instance can Dispatch data to any Player.
+- **Instance**: it's built from two pieces: Logic and Net. Players can only send data to one Instance at a time, but a Instance can Dispatch data to any Player.
 	- **Logic**: it's your server logic, represented by the methods Auth, Disconn and Update. The method Auth is run only in the main Instance, the Disconn is run whenever a Player disconnects and the Update is run once every tick.
 
 	- **Net**: it's the networking abstraction inside the Instance. It has a bucket or acumulator where all Players inside the instance deposits data, this bucket is flushed and retrieved every time you call Net.GetData(). You can use Net.Dispatch to send data to Players or Groups.
@@ -50,15 +50,20 @@ type Instance struct {
 	gna.Net
 }
 
-/*Here you will validate the Player, you can use Player.Send() and Player.Recv() to
-authenticate the Player. If not valid, you can just close the connection: Player.Close()*/
+/*Here you will validate the Player,
+ you can use Player.Send() and Player.Recv() to
+authenticate the Player. If not valid,
+ you can just close the connection: Player.Close()*/
 func (e *Instance) Auth(p *gna.Player) {}
 
-/*This is the Disconn handler, the connection is already closed at this stage, you can access 
-the cause of disconnection with Player.Error() and keep track of the players with Player.ID*/
+/*This is the Disconn handler, the connection 
+is already closed at this stage, you can access 
+the cause of disconnection with Player.Error()
+ and keep track of the players with Player.ID*/
 func (e *Instance) Disconn(p *gna.Player) {}
 
-/*Update is called every tick, here you can update your game state. Use Instance.GetData to get
+/*Update is called every tick, here you can
+ update your game state. Use Instance.GetData to get
 the data from the Players and Instance.Dispatch to send data.*/
 func (e *Instance) Update() {}
 ```
@@ -71,9 +76,9 @@ err := gna.RunServer(":8888", &Instance{})
 To better understand how it all works, go through the examples.
 
 ## Examples
-The (m:n) numbers means number of listeners per number of instances (to signal complexity). All examples also contain their respective clients.
+All examples also contain their respective clients.
 
-- [echo](./examples/echo): Echoes all incoming data to all players, very simple but not very useful (1:1)
-- [oneChatRoom](./examples/oneChatRoom): The simplest useful app possible, a single CLI chat room (1:1)
-- [manyChatRooms](./examples/manyChatRooms): A build up on the above, with many rooms which clients can choose and a few server commands (1:n)
-- [blobs](./examples/blobs): A simple 2D grid with blobs, the very basics of a 2D game server, with Ebiten Client. (1:1)
+- [echo](./examples/echo): Echoes all incoming data to all players, very simple but not very useful
+- [oneChatRoom](./examples/oneChatRoom): The simplest useful app possible, a single CLI chat room
+- [manyChatRooms](./examples/manyChatRooms): A build up on the above, with many rooms which clients can choose and a few server commands
+- [blobs](./examples/blobs): A simple 2D grid with blobs, the very basics of a 2D game server, with Ebiten Client.

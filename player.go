@@ -121,3 +121,15 @@ func (is *playerBucket) consume() []*Input {
 	is.mu.Unlock()
 	return out
 }
+
+/*Input is a simple struct that contains
+the data sent from the Player and a pointer to the Player.
+*/
+type Input struct {
+	P    *Player
+	Data interface{}
+}
+
+func (i *Input) String() string {
+	return fmt.Sprintf("{%v %v}", i.P, i.Data)
+}
