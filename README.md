@@ -1,6 +1,6 @@
 # GNA
 
-GNA stands for Game Networking Abstraction, it packs a server and a client for games written in Go. It's built around ```encoding/gob``` and persistent TCP connections. Although very simple, it is very powerfull, you can: 
+GNA stands for Game Networking Abstraction, it packs a server and a client for games written in Go. It's built around ```encoding/gob``` and persistent TCP connections (i'm planning to support UDP Broadcasting as well, but the TCP will still be the foundation to comunicated UDP addresses). Although very simple, it is very powerfull, you can: 
 - embed it into a client or use as standalone server
 - use a single instance or multiple instances concurrently
 - unicast, multicast and broadcast messages within and between instances
