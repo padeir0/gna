@@ -1,4 +1,4 @@
-# One Chat Room
+# Many Chat Rooms
 
 To run the server:
 
