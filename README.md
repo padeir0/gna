@@ -4,10 +4,9 @@ GNA stands for Game Networking Abstraction, it packs a server and a client for g
 - embed it into a client or use as standalone server
 - use a single instance or multiple instances concurrently
 - unicast, multicast and broadcast messages within and between instances
-- support hundreds of players\*
 - do it easily
 
-\*This depends on various factors in your implementation, machine and network, but right now there are known performance issues that limits the number of players in the hundreds.
+Note: Right now i do not recommend using this for servers over ~32 players, see issue #1.
 
 ## Installation
 
