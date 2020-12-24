@@ -129,7 +129,7 @@ type cliBucket struct {
 
 func (is *cliBucket) add(dt interface{}) {
 	is.mu.Lock()
-	if is.i > len(is.dt) {
+	if is.i >= len(is.dt) {
 		is.dt = append(is.dt, make([]interface{}, 64)...)
 	}
 	is.dt[is.i] = dt

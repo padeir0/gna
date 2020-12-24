@@ -38,7 +38,7 @@ func ClientLoop() {
 			fmt.Println(err)
 			continue
 		}
-		cli.Send(strings.ReplaceAll(msg, "\n", ""))
+		cli.Dispatch(strings.ReplaceAll(msg, "\n", ""))
 		if err := cli.Error(); err != nil {
 			log.Fatalf("Send Error: %v\n", err)
 		}

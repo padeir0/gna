@@ -101,15 +101,13 @@ type playerBucket struct {
 	mu sync.Mutex
 }
 
-func (is *playerBucket) add(dt ...*Input) {
+func (is *playerBucket) add(dt *Input) {
 	is.mu.Lock()
-	if is.i+len(dt) > len(is.dt) {
-		is.dt = append(is.dt, make([]*Input, len(dt)+64)...)
+	if is.i >= len(is.dt) {
+		is.dt = append(is.dt, make([]*Input, 64)...)
 	}
-	for j := range dt {
-		is.dt[is.i] = dt[j]
-		is.i++
-	}
+	is.dt[is.i] = dt
+	is.i++
 	is.mu.Unlock()
 }
 

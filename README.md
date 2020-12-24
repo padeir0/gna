@@ -6,7 +6,7 @@ GNA stands for Game Networking Abstraction, it packs a server and a client for g
 - unicast, multicast and broadcast messages within and between instances
 - do it easily
 
-Note: Right now i do not recommend using this for servers over ~32 players, see issue #1.
+Note: Right now i do not recommend using this for servers over ~64 players, see issue #1. Although i can run 300 players in my machine with the Blobs example using 25% on all 12 threads (Ryzen 5 2600x), i woudn't recomend it.
 
 ## Installation
 

@@ -37,7 +37,7 @@ func (g *Game) Update() error {
 		fmt.Println(len(g.blobs))
 	}
 	if input != "" {
-		g.conn.Send(input)
+		g.conn.Dispatch(input)
 		if err := g.conn.Error(); err != nil {
 			log.Fatal(err)
 		}
@@ -124,7 +124,4 @@ func (ent *Blob) draw(screen *ebiten.Image) {
 	newOp.GeoM.Translate(ent.Blob.P.X+offsetx, ent.Blob.P.Y+offsety)
 
 	screen.DrawImage(ent.img, newOp)
-	//	sin, cos := math.Sincos(ent.Blob.Rot)
-	//	s := fmt.Sprintf("x: %v, y: %v, rot: %v\nsin: %v, cos: %v", ent.Blob.P.X, ent.Blob.P.Y, ent.Blob.Rot, sin, cos)
-	//	ebitenutil.DebugPrint(screen, s)
 }
